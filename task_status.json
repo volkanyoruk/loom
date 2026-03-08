@@ -1,1 +1,65 @@
-{"task_id": "t1", "task": "test", "phase": "planning", "created_at": "", "updated_at": "", "steps": [], "steps_total": 0, "steps_done": 0, "current_step_id": 0, "blockers": [], "build_history": [], "lessons": []}
+{
+  "task_id": "b341a1cb",
+  "task": "downloadedFileSize: Int64? alanini DownloadItem'a ekle, DownloadRowView'da ByteCountFormatter ile formatli goster",
+  "phase": "implementation",
+  "created_at": "2026-03-08T17:17:18.214710+00:00",
+  "updated_at": "2026-03-08T17:17:44.714050+00:00",
+  "steps": [
+    {
+      "id": 1,
+      "desc": "DownloadItem modeline downloadedFileSize: Int64? = nil alanı ekle. Codable conformance varsa CodingKeys ve decoder'ı güncelle (decodeIfPresent).",
+      "assignee": "mini",
+      "affected_files": [
+        "Sources/YouTubeDownloader/Models/DownloadItem.swift"
+      ],
+      "test_plan": "Proje derlenir, mevcut DownloadItem oluşturma noktaları hatasız çalışır, yeni alan nil olarak gelir.",
+      "status": "in_progress",
+      "build_result": null,
+      "test_result": null,
+      "retry_count": 0,
+      "error_summary": null
+    },
+    {
+      "id": 2,
+      "desc": "DownloadManager'da indirme tamamlandığında (status = .completed) FileManager.attributesOfItem ile dosya boyutunu oku ve item.downloadedFileSize'a ata.",
+      "assignee": "mini",
+      "affected_files": [
+        "Sources/YouTubeDownloader/Services/DownloadManager.swift"
+      ],
+      "test_plan": "Bir dosya indirildiğinde DownloadItem.downloadedFileSize değerinin nil olmayan pozitif bir Int64 değeri olduğu doğrulanır.",
+      "status": "pending",
+      "build_result": null,
+      "test_result": null,
+      "retry_count": 0,
+      "error_summary": null
+    },
+    {
+      "id": 3,
+      "desc": "DownloadRowView'da ByteCountFormatter ile formatlı boyut gösterimi ekle. downloadedFileSize nil değilse Text olarak göster, nil ise gizle.",
+      "assignee": "mini",
+      "affected_files": [
+        "Sources/YouTubeDownloader/Views/DownloadRowView.swift"
+      ],
+      "test_plan": "Tamamlanmış indirmede boyut etiketi görünür (ör. '142.5 MB'). Devam eden veya başarısız indirmede boyut gösterilmez.",
+      "status": "pending",
+      "build_result": null,
+      "test_result": null,
+      "retry_count": 0,
+      "error_summary": null
+    }
+  ],
+  "steps_total": 3,
+  "steps_done": 0,
+  "current_step_id": 1,
+  "blockers": [],
+  "build_history": [],
+  "lessons": [],
+  "analysis": "DownloadItem modeline optional Int64 tipinde downloadedFileSize alanı eklenecek. DownloadManager indirme tamamlandığında FileManager ile dosya boyutunu okuyup bu alana yazacak. DownloadRowView'da ByteCountFormatter kullanılarak kullanıcıya okunabilir formatta (ör. 45.2 MB) gösterilecek.",
+  "acceptance_criteria": [
+    "DownloadItem modelinde downloadedFileSize: Int64? alanı mevcut ve nil olarak başlatılıyor",
+    "İndirme tamamlandığında dosya boyutu FileManager ile okunup downloadedFileSize'a yazılıyor",
+    "DownloadRowView'da boyut ByteCountFormatter.countStyle = .file ile formatlanıp gösteriliyor",
+    "downloadedFileSize nil olduğunda boyut bilgisi gizleniyor",
+    "Swift 6 strict concurrency uyumlu, Sendable conformance korunuyor"
+  ]
+}

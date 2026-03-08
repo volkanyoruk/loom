@@ -10,7 +10,7 @@ source "$AGENTS/lib/protocol.sh"
 
 # === Defaults ===
 MY_ROLE="" MODE="qa" POLL=2 MAX_IDLE=300
-CONTEXT_SIZE=35000 PROJECT_ROOT="$(cd "$AGENTS/.." && pwd)"
+CONTEXT_SIZE=35000 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$AGENTS/.." && pwd)}"
 CLAUDE="${CLAUDE_BIN:-$(find "$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin /opt/homebrew/bin -name claude -type f 2>/dev/null | head -1)}"
 [[ -z "$CLAUDE" ]] && CLAUDE="$(which claude 2>/dev/null || true)"
 MODEL="${CLAUDE_MODEL:-claude-opus-4-6}"
@@ -25,6 +25,7 @@ while [[ $# -gt 0 ]]; do
         --mode)    MODE="$2"; shift 2 ;;
         --poll)    POLL="$2"; shift 2 ;;
         --context) CONTEXT_SIZE="$2"; shift 2 ;;
+        --project) PROJECT_ROOT="$2"; shift 2 ;;
         --status)  SHOW_STATUS=true; shift ;;
         --help)
             echo "Kullanım: $0 --role main|mini --mode qa|collab|auto|plan"
@@ -87,6 +88,16 @@ fi
 [[ "$MODE" != "qa" && "$MODE" != "collab" && "$MODE" != "auto" && "$MODE" != "plan" ]] && \
     echo "Hata: mode = qa|collab|auto|plan" && exit 1
 [[ ! -x "$CLAUDE" ]] && echo "Hata: Claude bulunamadı: $CLAUDE" && exit 1
+
+# run_py SCRIPT_HEREDOC_VAR STDIN_DATA [extra args...]
+# pipe+heredoc stdin çakışması çözümü: script temp dosyaya yazılır, data pipe'la verilir
+run_py() {
+    local script_content="$1" stdin_data="$2"; shift 2
+    local tmp; tmp=$(mktemp /tmp/yd_py.XXXXXX.py)
+    printf '%s' "$script_content" > "$tmp"
+    printf '%s' "$stdin_data" | python3 "$tmp" "$@"
+    local ec=$?; rm -f "$tmp"; return $ec
+}
 
 PEER_ROLE=$([[ "$MY_ROLE" == "main" ]] && echo "mini" || echo "main")
 INBOX="$AGENTS/ask_mini.txt"
@@ -350,21 +361,21 @@ read_affected_files() {
     done
 }
 
-apply_code() {
-    local reply="$1"
-    printf '%s' "$reply" | PROJECT_ROOT="$PROJECT_ROOT" python3 - << 'PY'
+_APPLY_CODE_PY='
 import sys, re, os
 content = sys.stdin.read()
-root = os.path.realpath(os.environ['PROJECT_ROOT'])
-for path, code in re.findall(r'###\s+(Sources/[^\n]+\.swift)\n```swift\n(.*?)```', content, re.DOTALL):
+root = os.path.realpath(os.environ["PROJECT_ROOT"])
+for path, code in re.findall(r"###\s+(Sources/[^\n]+\.swift)\n```swift\n(.*?)```", content, re.DOTALL):
     full = os.path.realpath(os.path.join(root, path.strip()))
     if not full.startswith(root + os.sep):
-        print(f"SKIP (path traversal): {path.strip()}")
+        print("SKIP (path traversal): " + path.strip())
         continue
     os.makedirs(os.path.dirname(full), exist_ok=True)
-    open(full, 'w').write(code)
-    print(f"WROTE: {path.strip()}")
-PY
+    open(full, "w").write(code)
+    print("WROTE: " + path.strip())
+'
+apply_code() {
+    PROJECT_ROOT="$PROJECT_ROOT" run_py "$_APPLY_CODE_PY" "$1"
 }
 
 # Build + hata parse → yapılandırılmış çıktı
@@ -378,50 +389,30 @@ run_build_with_feedback() {
     fi
 
     # Hataları parse et
-    printf '%s' "$out" | python3 - << 'PY'
+    run_py '
 import sys, re
-
-COMPILE = re.compile(
-    r'^(?P<file>[^\s:]+\.swift):(?P<line>\d+):\d+:\s*(?P<level>error|warning):\s*(?P<msg>.+)$',
-    re.MULTILINE
-)
-CONCURRENCY = re.compile(
-    r'non-sendable|actor-isolated|cannot be transferred|@Sendable|main actor-isolated',
-    re.IGNORECASE
-)
-
+COMPILE = re.compile(r"^(?P<file>[^\s:]+\.swift):(?P<line>\d+):\d+:\s*(?P<level>error|warning):\s*(?P<msg>.+)$", re.MULTILINE)
+CONCURRENCY = re.compile(r"non-sendable|actor-isolated|cannot be transferred|@Sendable|main actor-isolated", re.IGNORECASE)
 text = sys.stdin.read()
-errors = []
-files_seen = set()
-
+errors, files_seen = [], set()
 for m in COMPILE.finditer(text):
     d = m.groupdict()
-    if d['level'] != 'error':
-        continue
-    msg = d['msg']
-    if CONCURRENCY.search(msg):
-        d['category'] = 'CONCURRENCY'
-    elif 'cannot find' in msg or 'has no member' in msg:
-        d['category'] = 'REFERENCE'
-    elif 'cannot convert' in msg or 'cannot assign' in msg:
-        d['category'] = 'TYPE_ERROR'
-    else:
-        d['category'] = 'SYNTAX'
-    errors.append(d)
-    files_seen.add(d['file'].split('/')[-1])
-
-print('BUILD_FAILED')
-print(f'ERROR_COUNT:{len(errors)}')
-print(f'AFFECTED_FILES:{",".join(sorted(files_seen))}')
-print('---ERRORS---')
-for e in errors[:20]:  # max 20 hata
-    print(f"[{e['category']}] {e['file'].split('/')[-1]}:{e['line']} — {e['msg']}")
-print('---RAW_TAIL---')
-# Son 30 satır ham çıktı
-lines = text.strip().split('\n')
-for l in lines[-30:]:
-    print(l)
-PY
+    if d["level"] != "error": continue
+    msg = d["msg"]
+    if CONCURRENCY.search(msg): d["category"] = "CONCURRENCY"
+    elif "cannot find" in msg or "has no member" in msg: d["category"] = "REFERENCE"
+    elif "cannot convert" in msg or "cannot assign" in msg: d["category"] = "TYPE_ERROR"
+    else: d["category"] = "SYNTAX"
+    errors.append(d); files_seen.add(d["file"].split("/")[-1])
+print("BUILD_FAILED")
+print("ERROR_COUNT:" + str(len(errors)))
+print("AFFECTED_FILES:" + ",".join(sorted(files_seen)))
+print("---ERRORS---")
+for e in errors[:20]: print("[" + e["category"] + "] " + e["file"].split("/")[-1] + ":" + e["line"] + " - " + e["msg"])
+print("---RAW_TAIL---")
+lines = text.strip().split("\n")
+for l in lines[-30:]: print(l)
+' "$out"
     return 1
 }
 
@@ -565,162 +556,188 @@ $build_section") || break
 }
 
 # ================================================================
-# === Plan Modu — Sadece main çalıştırır ===
+# === Plan Modu — Sadece main, Mini'ye QA üzerinden kod yazdırır ===
 # ================================================================
+
+# Mini'ye kod görevi gönder, cevabı al (QA inbox/outbox)
+ask_mini_for_code() {
+    local prompt="$1" code_timeout="${2:-300}"
+    rm -f "$OUTBOX"
+    printf '%s' "$prompt" > "$INBOX"
+    log "$MY_ROLE" "Mini'ye kod görevi gönderildi..."
+
+    local waited=0
+    while [[ $waited -lt $code_timeout ]]; do
+        if [[ -f "$OUTBOX" ]] && [[ ! -f "$BUSY" ]]; then
+            cat "$OUTBOX"; rm -f "$OUTBOX"; return 0
+        fi
+        sleep 3; waited=$((waited + 3))
+        [[ $((waited % 30)) -eq 0 ]] && log "$MY_ROLE" "Mini bekliyor... (${waited}s/${code_timeout}s)"
+    done
+    log "$MY_ROLE" "TIMEOUT: Mini ${code_timeout}s içinde cevap vermedi"
+    return 1
+}
+
+# Adım için kod yazma prompt'u
+step_code_prompt() {
+    local step_id="$1" step_desc="$2" step_files="$3" existing_code="$4"
+    cat << EOF
+Sen YouDown IMPLEMENTER Claude'usun (Mac Mini, Opus 4.6).
+Aşağıdaki adımı tam olarak uygula. Çalışır Swift 6 kodu yaz. Türkçe yorum yeterli.
+KOD FORMATI: ### Sources/Dosya/Adi.swift ardından \`\`\`swift ... \`\`\`
+Sadece değişen dosyaları yaz. Sonunda [TAMAMLANDI] ekle.
+
+=== ADIM $step_id ===
+$step_desc
+
+=== ETKİLENEN DOSYALAR (mevcut içerik) ===
+$existing_code
+EOF
+}
+
 run_plan() {
     [[ "$MY_ROLE" != "main" ]] && {
-        log "$MY_ROLE" "Plan modu sadece main rolünde çalışır."
-        exit 1
+        log "$MY_ROLE" "Plan modu sadece main rolünde çalışır."; exit 1
     }
 
     # Görev al
     local task=""
-    if [[ -f "$STATUS_FILE" ]]; then
-        task=$(python3 -c "import json; print(json.load(open('$STATUS_FILE')).get('task',''))" 2>/dev/null)
-    fi
-    if [[ -z "$task" ]]; then
-        log "$MY_ROLE" "Görev bulunamadı. Önce: ./start_task.sh \"Görev açıklaması\""
-        exit 1
-    fi
+    [[ -f "$STATUS_FILE" ]] && task=$(python3 -c \
+        "import json; print(json.load(open('$STATUS_FILE')).get('task',''))" 2>/dev/null)
+    [[ -z "$task" ]] && {
+        log "$MY_ROLE" "Görev bulunamadı. Önce: ./start_task.sh \"Görev\""; exit 1
+    }
 
     log "$MY_ROLE" "=== Plan Modu | Görev: ${task:0:60}... ==="
     local tid; tid=$(init_task_status "$task")
     log "$MY_ROLE" "Task ID: $tid"
-
-    # Dosya ağacı
-    local file_tree; file_tree=$(get_file_tree)
-
-    # Faz 1: Planlama — Ana Mac JSON plan üretir
-    log "$MY_ROLE" "📋 Plan oluşturuluyor..."
     update_task_status "phase" "planning"
 
-    local plan_reply
-    plan_reply=$(call_claude "$MY_ROLE" "$(plan_prompt "$task" "$file_tree")")
+    # Faz 1: Plan oluştur
+    log "$MY_ROLE" "📋 Plan oluşturuluyor..."
+    local file_tree; file_tree=$(get_file_tree)
+    local plan_reply; plan_reply=$(call_claude "$MY_ROLE" "$(plan_prompt "$task" "$file_tree")")
 
-    # JSON'u parse et
+    # JSON parse
     local plan_json
-    plan_json=$(printf '%s' "$plan_reply" | python3 -c "
-import sys, json, re
+    plan_json=$(run_py '
+import sys, json
 text = sys.stdin.read()
-# Markdown code block içindeyse çıkar
-m = re.search(r'\`\`\`(?:json)?\s*(\{.*?\})\s*\`\`\`', text, re.DOTALL)
-if m:
-    text = m.group(1)
-else:
-    # Direkt JSON bul
-    m = re.search(r'\{.*\}', text, re.DOTALL)
-    if m: text = m.group(0)
+start = text.find("{")
+end = text.rfind("}")
+if start == -1 or end == -1 or end <= start:
+    print("PARSE_ERROR: JSON bulunamadi", file=sys.stderr); sys.exit(1)
 try:
-    parsed = json.loads(text)
+    parsed = json.loads(text[start:end+1])
     print(json.dumps(parsed, ensure_ascii=False))
 except Exception as e:
-    print(f'PARSE_ERROR:{e}', file=sys.stderr)
-    sys.exit(1)
-" 2>/dev/null) || {
-        log "$MY_ROLE" "HATA: Plan JSON parse edilemedi. Ham yanıt:"
-        log "$MY_ROLE" "${plan_reply:0:200}"
-        exit 1
-    }
+    print("PARSE_ERROR:" + str(e), file=sys.stderr); sys.exit(1)
+' "$plan_reply") || { log "$MY_ROLE" "HATA: Plan JSON parse edilemedi: ${plan_reply:0:200}"; exit 1; }
 
-    # Planı kaydet
     save_plan_steps "$plan_json"
     log "$MY_ROLE" "Plan kaydedildi."
 
-    # Planı göster
-    printf '\n%s\n' "$(python3 - "$STATUS_FILE" << 'PY'
-import json, sys
-data = json.load(open(sys.argv[1]))
-print(f"📋 ANALİZ: {data.get('analysis','')}")
-print(f"✅ KRITERLER: {', '.join(data.get('acceptance_criteria',[]))}")
-print(f"\n📝 ADIMLAR ({data['steps_total']}):")
+    # Planı ekrana yaz — STATUS_FILE env var, f-string yok
+    STATUS_FILE="$STATUS_FILE" python3 << 'PY'
+import json, os
+data = json.load(open(os.environ['STATUS_FILE']))
+print("")
+print("=" * 60)
+print("  PLAN HAZIRLANDI")
+print("=" * 60)
+print("  Analiz  :", data.get('analysis',''))
+print("  Kriterler:", ', '.join(data.get('acceptance_criteria',[])))
+print("")
+print("  Adimlar (" + str(data['steps_total']) + "):")
 for s in data['steps']:
     files = ', '.join(s.get('affected_files',[]))
-    print(f"  {s['id']}. {s['desc']}")
-    print(f"     Dosyalar: {files}")
+    print("  " + str(s['id']) + ". " + s['desc'])
+    print("     Dosyalar: " + files)
+print("=" * 60)
+print("")
+PY
+
+    # Faz 2: Her adım için Mini'ye QA ile kod yazdır
+    update_task_status "phase" "implementation"
+    local steps_total
+    steps_total=$(python3 -c \
+        "import json; print(json.load(open('$STATUS_FILE'))['steps_total'])" 2>/dev/null)
+
+    for step_id in $(seq 1 "$steps_total"); do
+        # Adım bilgilerini oku
+        local step_desc step_files
+        read step_desc step_files <<< "$(python3 - "$STATUS_FILE" "$step_id" << 'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+sid = int(sys.argv[2])
+for s in data['steps']:
+    if s['id'] == sid:
+        print(s['desc'])
+        print('\n'.join(s.get('affected_files',[])))
+        break
 PY
 )"
-
-    # Mini'ye planı gönder — env var ile, stdin çakışması yok
-    local plan_summary
-    plan_summary=$(PLAN_JSON="$plan_json" python3 << 'PY'
+        # Etkilenen dosyaların içeriğini oku
+        local existing_code
+        existing_code=$(STATUS_FILE="$STATUS_FILE" STEP_ID="$step_id" \
+            PROJECT_ROOT="$PROJECT_ROOT" python3 << 'PY'
 import json, os
-data = json.loads(os.environ['PLAN_JSON'])
-steps = data.get('steps',[])
-text = f"Görev: {data.get('analysis','')}\n\nAdımlar:\n"
-for s in steps:
-    text += f"{s['id']}. {s['desc']} ({', '.join(s.get('affected_files',[]))})\n"
-print(text)
+data = json.load(open(os.environ['STATUS_FILE']))
+root = os.environ['PROJECT_ROOT']
+sid = int(os.environ['STEP_ID'])
+for s in data['steps']:
+    if s['id'] == sid:
+        for f in s.get('affected_files',[]):
+            full = os.path.join(root, f)
+            if os.path.isfile(full):
+                print("### " + f)
+                print("```swift")
+                print(open(full).read())
+                print("```")
+                print("")
+        break
 PY
 )
 
-    send_msg "main" "PLAN HAZIR — Başlıyoruz.\n\n$plan_summary\n\nİmplementasyona geç."
-
-    # Faz 2: Her adım için collab döngüsü
-    local steps_total
-    steps_total=$(python3 -c "import json; print(json.load(open('$STATUS_FILE'))['steps_total'])" "$STATUS_FILE" 2>/dev/null)
-
-    for step_id in $(seq 1 "$steps_total"); do
-        local step_desc step_files
-        step_desc=$(python3 -c "
-import json, sys
-data = json.load(open(sys.argv[1]))
-for s in data['steps']:
-    if s['id'] == $step_id:
-        print(s['desc'])
-        break
-" "$STATUS_FILE")
-        step_files=$(python3 -c "
-import json, sys
-data = json.load(open(sys.argv[1]))
-for s in data['steps']:
-    if s['id'] == $step_id:
-        print('\n'.join(s.get('affected_files',[])))
-        break
-" "$STATUS_FILE")
-
-        log "$MY_ROLE" "▶ Adım $step_id/$steps_total: $step_desc"
+        log "$MY_ROLE" "▶ Adım $step_id/$steps_total: ${step_desc:0:70}"
         update_step_status "$step_id" "in_progress"
 
-        local step_info="=== MEVCUT ADIM: $step_id/$steps_total ===
-$step_desc
-Etkilenen dosyalar: $step_files"
-
-        # Build retry loop
+        # Build + fix retry döngüsü
         local build_ok=false
         for attempt in $(seq 1 $BUILD_MAX_RETRY); do
-            # Collab: mini yazar, main review eder
-            run_collab "$step_info"
+            log "$MY_ROLE" "  Mini'ye kod görevi gönderiliyor (deneme $attempt)..."
 
-            # Build kontrol
-            if [[ "$MY_ROLE" == "main" ]]; then
-                local bout
-                bout=$(run_build_with_feedback) || true
-                local bstatus; bstatus=$(printf '%s' "$bout" | head -1)
-
-                if [[ "$bstatus" == "BUILD_SUCCESS" ]]; then
-                    record_build "$step_id" "true" ""
-                    build_ok=true
-                    break
-                else
-                    local err_summary; err_summary=$(printf '%s' "$bout" | grep "^\[" | head -5 | tr '\n' ' ')
-                    record_build "$step_id" "false" "$err_summary"
-                    log "$MY_ROLE" "Build başarısız (deneme $attempt/$BUILD_MAX_RETRY): $err_summary"
-
-                    if [[ $attempt -lt $BUILD_MAX_RETRY ]]; then
-                        # Hata feedback'i Mini'ye gönder
-                        local affected_content; affected_content=$(read_affected_files "$step_files")
-                        local fix_reply
-                        fix_reply=$(call_claude "mini" "$(build_fix_prompt "$bout" "$affected_content")") || true
-                        printf '%s' "$fix_reply" | grep -q '```swift' && {
-                            apply_code "$fix_reply" | while read -r l; do log "$MY_ROLE" "  FIX: $l"; done
-                            send_msg "mini" "$fix_reply"
-                        }
-                    fi
-                fi
-            else
-                # Mini: sadece build loop olmayan adımda bekle
-                build_ok=true
+            local code_reply
+            if ! code_reply=$(ask_mini_for_code \
+                "$(step_code_prompt "$step_id" "$step_desc" "$step_files" "$existing_code")" 300); then
+                log "$MY_ROLE" "  Mini cevap vermedi, atlanıyor."
                 break
+            fi
+
+            # Kod uygula
+            printf '%s' "$code_reply" | grep -q '```swift' && {
+                apply_code "$code_reply" | while read -r l; do log "$MY_ROLE" "    $l"; done
+            }
+
+            # Build
+            log "$MY_ROLE" "  Build alınıyor..."
+            local bout; bout=$(run_build_with_feedback) || true
+            local bstatus; bstatus=$(printf '%s' "$bout" | head -1)
+
+            if [[ "$bstatus" == "BUILD_SUCCESS" ]]; then
+                record_build "$step_id" "true" ""
+                build_ok=true
+                log "$MY_ROLE" "  ✅ Build başarılı"
+                break
+            else
+                local err_summary; err_summary=$(printf '%s' "$bout" | grep "^\[" | head -5 | tr '\n' ' ')
+                record_build "$step_id" "false" "$err_summary"
+                log "$MY_ROLE" "  ❌ Build hatalı (deneme $attempt): ${err_summary:0:100}"
+
+                if [[ $attempt -lt $BUILD_MAX_RETRY ]]; then
+                    # Hata feedback ile existing_code güncelle
+                    existing_code=$(printf '%s' "$bout" | tail -n +2 | head -50)
+                fi
             fi
         done
 
@@ -729,8 +746,10 @@ Etkilenen dosyalar: $step_files"
             log "$MY_ROLE" "✅ Adım $step_id tamamlandı"
         else
             update_step_status "$step_id" "failed" "Build $BUILD_MAX_RETRY denemede düzeltilemedi"
-            log "$MY_ROLE" "❌ Adım $step_id başarısız — devam ediliyor"
+            log "$MY_ROLE" "❌ Adım $step_id başarısız — sonraki adıma geçiliyor"
         fi
+
+        "$0" --status 2>/dev/null || true
     done
 
     update_task_status "phase" "done"
