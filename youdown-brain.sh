@@ -250,19 +250,69 @@ $question
 EOF
 }
 
-plan_prompt() {
+discovery_question_prompt() {
     local task="$1" file_tree="$2"
     cat << EOF
-Sen bir Swift 6/SwiftUI proje mimarısısın. Görevi analiz et ve JSON plan üret.
+Sen deneyimli bir yazılım mimarısısın. Mini (implementer) ile konuşmadan önce görevi analiz edeceksin.
 
 GÖREV: $task
 
 PROJE DOSYA YAPISI:
 $file_tree
 
+Mini'ye sormak istediğin 2-3 kritik teknik soruyu belirle. Bunlar Mini'nin projeyi inceleyip
+cevaplayabileceği, planı daha iyi yapmanı sağlayacak sorular olsun.
+
+Sadece şu JSON formatını döndür:
+{
+  "initial_thoughts": "Görev hakkında ilk teknik değerlendirmen (2-3 cümle)",
+  "questions": [
+    "Soru 1 (net, teknik, spesifik)",
+    "Soru 2",
+    "Soru 3 (opsiyonel)"
+  ]
+}
+EOF
+}
+
+discovery_answer_prompt() {
+    local task="$1" file_tree="$2" questions="$3" existing_code="$4"
+    cat << EOF
+Sen deneyimli bir Swift 6/SwiftUI geliştiricisisin (implementer). Mimar sana bazı sorular sordu.
+Projeyi dikkatlice inceleyerek dürüst, teknik cevaplar ver. Bilmiyorsan "bilmiyorum" de.
+
+GÖREV: $task
+
+PROJE DOSYA YAPISI:
+$file_tree
+
+=== MİMAR'IN SORULARI ===
+$questions
+
+=== MEVCUT PROJE KODU (ilgili dosyalar) ===
+$existing_code
+
+Her soruyu tek tek yanıtla. Kısa ve teknik ol. Türkçe.
+Eğer bir risk veya dikkat edilmesi gereken şey görüyorsan belirt.
+EOF
+}
+
+plan_prompt() {
+    local task="$1" file_tree="$2" mini_insights="$3"
+    cat << EOF
+Sen bir Swift 6/SwiftUI proje mimarısısın. Mini ile yaptığın teknik tartışmayı da göz önünde bulundurarak JSON plan üret.
+
+GÖREV: $task
+
+PROJE DOSYA YAPISI:
+$file_tree
+
+=== MİNİ'NİN TEKNİK GÖRÜŞLERİ ===
+$mini_insights
+
 Sadece aşağıdaki JSON formatını döndür, başka hiçbir şey yazma:
 {
-  "analysis": "Görevin 2-3 cümlelik teknik analizi",
+  "analysis": "Görevin 2-3 cümlelik teknik analizi (Mini'nin girdilerini yansıt)",
   "acceptance_criteria": ["Kriter 1", "Kriter 2"],
   "risks": ["Risk 1"],
   "steps": [
@@ -559,10 +609,56 @@ run_plan() {
     log "$MY_ROLE" "Task ID: $tid"
     update_task_status "phase" "planning"
 
-    # Faz 1: Plan oluştur
-    log "$MY_ROLE" "📋 Plan oluşturuluyor..."
+    # ── Faz 0: Keşif — Main soru sorar, Mini projeyi inceleyerek cevaplar ──
+    log "$MY_ROLE" "🔍 Keşif fazı başlıyor..."
     local file_tree; file_tree=$(get_file_tree)
-    local plan_reply; plan_reply=$(call_claude "$MY_ROLE" "$(plan_prompt "$task" "$file_tree")")
+    local existing_code; existing_code=$(read_project_files)
+
+    # Main soruları oluşturur
+    local discovery_reply
+    discovery_reply=$(call_claude "$MY_ROLE" "$(discovery_question_prompt "$task" "$file_tree")")
+
+    local questions
+    questions=$(run_py '
+import sys, json
+text = sys.stdin.read()
+start = text.find("{")
+if start == -1:
+    print("(soru oluşturulamadı)")
+else:
+    try:
+        parsed, _ = json.JSONDecoder().raw_decode(text[start:])
+        print("Başlangıç değerlendirmesi: " + parsed.get("initial_thoughts",""))
+        print("")
+        for i, q in enumerate(parsed.get("questions",[]), 1):
+            print(str(i) + ". " + q)
+    except:
+        print(text[:500])
+' "$discovery_reply")
+
+    log "$MY_ROLE" "Mimar soruları:"$'\n'"$questions"
+
+    # Mini projeyi inceleyerek cevaplar
+    log "$MY_ROLE" "Mini'ye keşif soruları gönderiliyor..."
+    local mini_insights
+    mini_insights=$(ask_mini_for_code \
+        "$(discovery_answer_prompt "$task" "$file_tree" "$questions" "$existing_code")" 300) || {
+        log "$MY_ROLE" "Mini keşif fazında cevap vermedi, direkt plana geçiliyor."
+        mini_insights="(keşif fazı atlandı)"
+    }
+
+    log "$MY_ROLE" "Mini'nin görüşleri alındı (${#mini_insights} chars)"
+    send_msg "$MY_ROLE" "=== KEŞİF FAZII ===
+
+**MİMAR SORULARI:**
+$questions
+
+**MİNİ CEVAPLARI:**
+$mini_insights"
+
+    # ── Faz 1: Plan oluştur (Mini'nin görüşleriyle) ──
+    log "$MY_ROLE" "📋 Plan oluşturuluyor (Mini'nin girdileriyle)..."
+    local plan_reply; plan_reply=$(call_claude "$MY_ROLE" "$(plan_prompt "$task" "$file_tree" "$mini_insights")")
 
     # JSON parse
     local plan_json
