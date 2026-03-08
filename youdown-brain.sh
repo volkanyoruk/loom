@@ -348,8 +348,11 @@ read_project_files() {
 }
 
 get_file_tree() {
-    find "$PROJECT_ROOT/Sources" -name "*.swift" 2>/dev/null | \
-        sed "s|$PROJECT_ROOT/||" | sort
+    # Swift projesi varsa dosya ağacını döndür, yoksa boş
+    if [ -d "$PROJECT_ROOT/Sources" ]; then
+        find "$PROJECT_ROOT/Sources" -name "*.swift" 2>/dev/null | \
+            sed "s|$PROJECT_ROOT/||" | sort
+    fi
 }
 
 read_affected_files() {
