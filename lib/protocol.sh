@@ -159,17 +159,43 @@ check_conflicts() {
     return 0
 }
 
-# === Claude Call with Retry ===
+# === AI Call with Retry (Claude veya Codex backend) ===
+# AI_BACKEND=claude (default) | codex
 MAX_RETRIES=3
 BACKOFF=(5 15 30)
 
+_call_claude_backend() {
+    local prompt="$1" role="$2"
+    local bin="${CLAUDE_BIN:-$(find "$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin -name claude -type f 2>/dev/null | head -1)}"
+    local model="${CLAUDE_MODEL:-claude-opus-4-6}"
+    env -u CLAUDECODE "$bin" --model "$model" -p "$prompt" 2>>"$LOG_DIR/${role}_stderr.log"
+}
+
+_call_codex_backend() {
+    local prompt="$1" role="$2"
+    local bin="${CODEX_BIN:-$(which codex 2>/dev/null || echo "$HOME/.npm-global/bin/codex")}"
+    local model="${CODEX_MODEL:-}"  # boşsa codex config'deki default kullanılır
+    local tmpout; tmpout=$(mktemp)
+    local args=(exec --dangerously-bypass-approvals-and-sandbox -o "$tmpout")
+    [[ -n "$model" ]] && args+=(-m "$model")
+    args+=("$prompt")
+    "$bin" "${args[@]}" 2>>"$LOG_DIR/${role}_stderr.log"
+    local ec=$?
+    cat "$tmpout" 2>/dev/null
+    rm -f "$tmpout"
+    return $ec
+}
+
 call_claude() {
     local role="$1" prompt="$2"
+    local backend="${AI_BACKEND:-claude}"
     for i in $(seq 0 $((MAX_RETRIES - 1))); do
         local reply
-        local claude_bin="${CLAUDE_BIN:-$(which claude 2>/dev/null || echo "$HOME/.local/bin/claude")}"
-        local model="${CLAUDE_MODEL:-claude-opus-4-6}"
-        reply=$(env -u CLAUDECODE "$claude_bin" --model "$model" -p "$prompt" 2>>"$LOG_DIR/${role}_claude_stderr.log")
+        if [[ "$backend" == "codex" ]]; then
+            reply=$(_call_codex_backend "$prompt" "$role")
+        else
+            reply=$(_call_claude_backend "$prompt" "$role")
+        fi
         local exit_code=$?
 
         if [ $exit_code -eq 0 ] && [ -n "$reply" ] && [ ${#reply} -gt 20 ]; then
@@ -178,7 +204,7 @@ call_claude() {
         fi
 
         local wait=${BACKOFF[$i]}
-        log "$role" "WARN: Claude attempt $((i+1))/$MAX_RETRIES failed (exit=$exit_code, len=${#reply}). ${wait}s bekleniyor..."
+        log "$role" "WARN: $backend attempt $((i+1))/$MAX_RETRIES failed (exit=$exit_code, len=${#reply}). ${wait}s bekleniyor..."
         sleep "$wait"
     done
 

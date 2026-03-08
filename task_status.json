@@ -3,7 +3,7 @@
   "task": "downloadedFileSize: Int64? alanini DownloadItem'a ekle, DownloadRowView'da ByteCountFormatter ile formatli goster",
   "phase": "implementation",
   "created_at": "2026-03-08T17:17:18.214710+00:00",
-  "updated_at": "2026-03-08T17:17:44.714050+00:00",
+  "updated_at": "2026-03-08T17:27:47.771331+00:00",
   "steps": [
     {
       "id": 1,
@@ -13,11 +13,11 @@
         "Sources/YouTubeDownloader/Models/DownloadItem.swift"
       ],
       "test_plan": "Proje derlenir, mevcut DownloadItem oluşturma noktaları hatasız çalışır, yeni alan nil olarak gelir.",
-      "status": "in_progress",
+      "status": "failed",
       "build_result": null,
       "test_result": null,
       "retry_count": 0,
-      "error_summary": null
+      "error_summary": "Build 3 denemede düzeltilemedi"
     },
     {
       "id": 2,
@@ -27,11 +27,11 @@
         "Sources/YouTubeDownloader/Services/DownloadManager.swift"
       ],
       "test_plan": "Bir dosya indirildiğinde DownloadItem.downloadedFileSize değerinin nil olmayan pozitif bir Int64 değeri olduğu doğrulanır.",
-      "status": "pending",
+      "status": "failed",
       "build_result": null,
       "test_result": null,
       "retry_count": 0,
-      "error_summary": null
+      "error_summary": "Build 3 denemede düzeltilemedi"
     },
     {
       "id": 3,
@@ -41,7 +41,7 @@
         "Sources/YouTubeDownloader/Views/DownloadRowView.swift"
       ],
       "test_plan": "Tamamlanmış indirmede boyut etiketi görünür (ör. '142.5 MB'). Devam eden veya başarısız indirmede boyut gösterilmez.",
-      "status": "pending",
+      "status": "in_progress",
       "build_result": null,
       "test_result": null,
       "retry_count": 0,
@@ -50,7 +50,7 @@
   ],
   "steps_total": 3,
   "steps_done": 0,
-  "current_step_id": 1,
+  "current_step_id": 3,
   "blockers": [],
   "build_history": [],
   "lessons": [],
