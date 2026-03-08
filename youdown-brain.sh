@@ -351,9 +351,9 @@ Sıra sende:
 EOF
     else
         cat << EOF
-Sen Ceylin'sin — YouDown projesinin uygulayıcı Claude'u (Opus 4.6).
-Görevi analiz et, tam çalışır Swift 6 kodu yaz, [TAMAMLANDI] ile bitir. Türkçe.
-KOD FORMATI: ### Sources/Dosya.swift ardından \`\`\`swift blok \`\`\`
+Sen Ceylin'sin — projenin uygulayıcı Claude'u (Sonnet 4.6).
+Görevi analiz et, tam çalışır kod yaz, [TAMAMLANDI] ile bitir. Türkçe.
+KOD FORMATI: ### src/dosya/adi.jsx ardından \`\`\`jsx blok \`\`\` (ya da ilgili uzantı)
 $step_info
 
 === PROJE DOSYALARI ===
@@ -387,28 +387,67 @@ EOF
 # ================================================================
 # === Proje Dosyaları & Build ===
 # ================================================================
-read_project_files() {
-    while IFS= read -r path; do
-        [[ -f "$path" ]] && printf '### %s\n```swift\n%s\n```\n\n' \
-            "${path#$PROJECT_ROOT/}" "$(cat "$path")"
-    done < <(find "$PROJECT_ROOT/Sources" -name "*.swift" 2>/dev/null | sort)
-    [[ -f "$PROJECT_ROOT/Package.swift" ]] && printf '### Package.swift\n```swift\n%s\n```\n\n' \
-        "$(cat "$PROJECT_ROOT/Package.swift")"
-}
-
-get_file_tree() {
-    # Swift projesi varsa dosya ağacını döndür, yoksa boş
-    if [ -d "$PROJECT_ROOT/Sources" ]; then
-        find "$PROJECT_ROOT/Sources" -name "*.swift" 2>/dev/null | \
-            sed "s|$PROJECT_ROOT/||" | sort
+# Proje tipini algıla: react | swift | generic
+detect_project_type() {
+    if [[ -f "$PROJECT_ROOT/package.json" ]]; then
+        echo "react"
+    elif [[ -f "$PROJECT_ROOT/Package.swift" ]]; then
+        echo "swift"
+    else
+        echo "generic"
     fi
 }
 
+get_file_tree() {
+    local ptype; ptype=$(detect_project_type)
+    case "$ptype" in
+        react)
+            find "$PROJECT_ROOT/src" \( -name "*.jsx" -o -name "*.js" -o -name "*.css" -o -name "*.tsx" -o -name "*.ts" \) 2>/dev/null | \
+                sed "s|$PROJECT_ROOT/||" | sort
+            ;;
+        swift)
+            find "$PROJECT_ROOT/Sources" -name "*.swift" 2>/dev/null | \
+                sed "s|$PROJECT_ROOT/||" | sort
+            ;;
+        *)
+            find "$PROJECT_ROOT" -maxdepth 3 \( -name "*.js" -o -name "*.py" -o -name "*.go" \) 2>/dev/null | \
+                sed "s|$PROJECT_ROOT/||" | sort | head -30
+            ;;
+    esac
+}
+
+read_project_files() {
+    local ptype; ptype=$(detect_project_type)
+    local ext lang
+    case "$ptype" in
+        react) ext='\( -name "*.jsx" -o -name "*.js" -o -name "*.css" -o -name "*.tsx" \)'; lang="jsx" ;;
+        swift) ext='-name "*.swift"'; lang="swift" ;;
+        *)     ext='-name "*.js"'; lang="js" ;;
+    esac
+
+    local srcdir="$PROJECT_ROOT/src"
+    [[ "$ptype" == "swift" ]] && srcdir="$PROJECT_ROOT/Sources"
+    [[ ! -d "$srcdir" ]] && srcdir="$PROJECT_ROOT"
+
+    find "$srcdir" $ext 2>/dev/null | sort | while IFS= read -r path; do
+        [[ -f "$path" ]] && printf '### %s\n```%s\n%s\n```\n\n' \
+            "${path#$PROJECT_ROOT/}" "$lang" "$(cat "$path")"
+    done
+
+    # Config dosyaları
+    for cfg in package.json vite.config.js vite.config.ts Package.swift; do
+        [[ -f "$PROJECT_ROOT/$cfg" ]] && printf '### %s\n```\n%s\n```\n\n' \
+            "$cfg" "$(cat "$PROJECT_ROOT/$cfg")"
+    done
+}
+
 read_affected_files() {
-    local file_list="$1"  # newline-separated paths
+    local file_list="$1"
+    local ptype; ptype=$(detect_project_type)
+    local lang; [[ "$ptype" == "react" ]] && lang="jsx" || lang="swift"
     printf '%s' "$file_list" | while IFS= read -r f; do
         local full="$PROJECT_ROOT/$f"
-        [[ -f "$full" ]] && printf '### %s\n```swift\n%s\n```\n\n' "$f" "$(cat "$full")"
+        [[ -f "$full" ]] && printf '### %s\n```%s\n%s\n```\n\n' "$f" "$lang" "$(cat "$full")"
     done
 }
 
@@ -416,7 +455,8 @@ _APPLY_CODE_PY='
 import sys, re, os
 content = sys.stdin.read()
 root = os.path.realpath(os.environ["PROJECT_ROOT"])
-for path, code in re.findall(r"###\s+(Sources/[^\n]+\.swift)\n```swift\n(.*?)```", content, re.DOTALL):
+# Hem Sources/*.swift hem src/*.jsx formatını destekle
+for path, code in re.findall(r"###\s+([^\n]+\.(swift|jsx|js|tsx|ts|css))\n```[^\n]*\n(.*?)```", content, re.DOTALL):
     full = os.path.realpath(os.path.join(root, path.strip()))
     if not full.startswith(root + os.sep):
         print("SKIP (path traversal): " + path.strip())
@@ -429,43 +469,29 @@ apply_code() {
     PROJECT_ROOT="$PROJECT_ROOT" run_py "$_APPLY_CODE_PY" "$1"
 }
 
-# Build + hata parse → yapılandırılmış çıktı
+# Build + hata parse
 run_build_with_feedback() {
     local out ec=0
-    out=$(cd "$PROJECT_ROOT" && swift build 2>&1) || ec=$?
+    local ptype; ptype=$(detect_project_type)
+
+    case "$ptype" in
+        react) out=$(cd "$PROJECT_ROOT" && npm run build 2>&1) || ec=$? ;;
+        swift) out=$(cd "$PROJECT_ROOT" && swift build 2>&1) || ec=$? ;;
+        *)     ec=0; out="BUILD_SUCCESS" ;;
+    esac
 
     if [[ $ec -eq 0 ]]; then
         printf 'BUILD_SUCCESS\n'
         return 0
     fi
 
-    # Hataları parse et
-    run_py '
-import sys, re
-COMPILE = re.compile(r"^(?P<file>[^\s:]+\.swift):(?P<line>\d+):\d+:\s*(?P<level>error|warning):\s*(?P<msg>.+)$", re.MULTILINE)
-CONCURRENCY = re.compile(r"non-sendable|actor-isolated|cannot be transferred|@Sendable|main actor-isolated", re.IGNORECASE)
-text = sys.stdin.read()
-errors, files_seen = [], set()
-for m in COMPILE.finditer(text):
-    d = m.groupdict()
-    if d["level"] != "error": continue
-    msg = d["msg"]
-    if CONCURRENCY.search(msg): d["category"] = "CONCURRENCY"
-    elif "cannot find" in msg or "has no member" in msg: d["category"] = "REFERENCE"
-    elif "cannot convert" in msg or "cannot assign" in msg: d["category"] = "TYPE_ERROR"
-    else: d["category"] = "SYNTAX"
-    errors.append(d); files_seen.add(d["file"].split("/")[-1])
-print("BUILD_FAILED")
-print("ERROR_COUNT:" + str(len(errors)))
-print("AFFECTED_FILES:" + ",".join(sorted(files_seen)))
-print("---ERRORS---")
-for e in errors[:20]: print("[" + e["category"] + "] " + e["file"].split("/")[-1] + ":" + e["line"] + " - " + e["msg"])
-print("---RAW_TAIL---")
-lines = text.strip().split("\n")
-for l in lines[-30:]: print(l)
-' "$out"
+    printf 'BUILD_FAILED\n'
+    printf 'ERROR_COUNT:?\n'
+    printf '---RAW_TAIL---\n'
+    printf '%s' "$out" | tail -30
     return 1
 }
+
 
 # ================================================================
 # === QA Modu ===
@@ -578,9 +604,9 @@ ask_mini_for_code() {
 step_code_prompt() {
     local step_id="$1" step_desc="$2" step_files="$3" existing_code="$4"
     cat << EOF
-Sen Ceylin'sin — YouDown projesinin uygulayıcı Claude'u (Opus 4.6).
-Aşağıdaki adımı tam olarak uygula. Çalışır Swift 6 kodu yaz. Türkçe yorum yeterli.
-KOD FORMATI: ### Sources/Dosya/Adi.swift ardından \`\`\`swift ... \`\`\`
+Sen Ceylin'sin — projenin uygulayıcı Claude'u (Sonnet 4.6).
+Aşağıdaki adımı tam olarak uygula. Çalışır kod yaz. Türkçe yorum yeterli.
+KOD FORMATI: ### src/dosya/adi.jsx ardından \`\`\`jsx ... \`\`\` (ya da ilgili uzantı)
 Sadece değişen dosyaları yaz. Sonunda [TAMAMLANDI] ekle.
 
 === ADIM $step_id ===
