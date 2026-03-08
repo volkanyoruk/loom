@@ -159,54 +159,18 @@ check_conflicts() {
     return 0
 }
 
-# === AI Call with Retry (Claude veya Codex backend) ===
-# AI_BACKEND=claude (default) | codex
+# === AI Call with Retry ===
 MAX_RETRIES=3
 BACKOFF=(5 15 30)
 
-_call_claude_backend() {
-    local prompt="$1" role="$2"
-    local bin="${CLAUDE_BIN:-$(which claude 2>/dev/null || find "$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin /opt/homebrew/bin -name claude 2>/dev/null | head -1)}"
-    local model="${CLAUDE_MODEL:-claude-opus-4-6}"
-    env -u CLAUDECODE "$bin" --model "$model" -p "$prompt" 2>>"$LOG_DIR/${role}_stderr.log"
-}
-
-_call_gemini_backend() {
-    local prompt="$1" role="$2"
-    local bin="${GEMINI_BIN:-$(which gemini 2>/dev/null || echo "$HOME/.npm-global/bin/gemini")}"
-    local model="${GEMINI_MODEL:-}"
-    local args=(-p "$prompt")
-    [[ -n "$model" ]] && args=(--model "$model" -p "$prompt")
-    "$bin" "${args[@]}" 2>>"$LOG_DIR/${role}_stderr.log" | grep -v "^Loaded cached\|^Loading extension"
-}
-
-_call_codex_backend() {
-    local prompt="$1" role="$2"
-    local bin="${CODEX_BIN:-$(which codex 2>/dev/null || echo "$HOME/.npm-global/bin/codex")}"
-    local model="${CODEX_MODEL:-}"  # boşsa codex config'deki default kullanılır
-    local tmpout; tmpout=$(mktemp)
-    local args=(exec --dangerously-bypass-approvals-and-sandbox -o "$tmpout")
-    [[ -n "$model" ]] && args+=(-m "$model")
-    args+=("$prompt")
-    "$bin" "${args[@]}" 2>>"$LOG_DIR/${role}_stderr.log"
-    local ec=$?
-    cat "$tmpout" 2>/dev/null
-    rm -f "$tmpout"
-    return $ec
-}
-
 call_claude() {
     local role="$1" prompt="$2"
-    local backend="${AI_BACKEND:-claude}"
+    local bin="${CLAUDE_BIN:-$(which claude 2>/dev/null || find "$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin /opt/homebrew/bin -name claude 2>/dev/null | head -1)}"
+    local model="${CLAUDE_MODEL:-claude-opus-4-6}"
+
     for i in $(seq 0 $((MAX_RETRIES - 1))); do
         local reply
-        if [[ "$backend" == "codex" ]]; then
-            reply=$(_call_codex_backend "$prompt" "$role")
-        elif [[ "$backend" == "gemini" ]]; then
-            reply=$(_call_gemini_backend "$prompt" "$role")
-        else
-            reply=$(_call_claude_backend "$prompt" "$role")
-        fi
+        reply=$(env -u CLAUDECODE "$bin" --model "$model" -p "$prompt" 2>>"$LOG_DIR/${role}_stderr.log")
         local exit_code=$?
 
         if [ $exit_code -eq 0 ] && [ -n "$reply" ] && [ ${#reply} -gt 20 ]; then
@@ -215,12 +179,11 @@ call_claude() {
         fi
 
         local wait=${BACKOFF[$i]}
-        log "$role" "WARN: $backend attempt $((i+1))/$MAX_RETRIES failed (exit=$exit_code, len=${#reply}). ${wait}s bekleniyor..."
+        log "$role" "WARN: attempt $((i+1))/$MAX_RETRIES failed (exit=$exit_code, len=${#reply}). ${wait}s bekleniyor..."
         sleep "$wait"
     done
 
     log "$role" "FATAL: Claude $MAX_RETRIES denemede cevap veremedi."
-    send_msg "$role" "[ERROR] Claude unresponsive after $MAX_RETRIES attempts. Son stderr: $(tail -3 "$LOG_DIR/${role}_claude_stderr.log" 2>/dev/null)"
     return 1
 }
 

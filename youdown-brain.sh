@@ -1,6 +1,6 @@
 #!/bin/bash
-# youdown-brain.sh — Unified YouDown AI Brain v3
-# Kullanım: ./youdown-brain.sh --role mini|main --mode qa|collab|auto|plan
+# youdown-brain.sh — YouDown AI Brain
+# Kullanım: ./youdown-brain.sh --role main|mini --mode qa|collab|plan
 #           ./youdown-brain.sh --status
 
 set -euo pipefail
@@ -27,10 +27,9 @@ while [[ $# -gt 0 ]]; do
         --project) PROJECT_ROOT="$2"; shift 2 ;;
         --status)  SHOW_STATUS=true; shift ;;
         --help)
-            echo "Kullanım: $0 --role main|mini --mode qa|collab|auto|plan"
+            echo "Kullanım: $0 --role main|mini --mode qa|collab|plan"
             echo "  qa     : Soru-cevap daemon (ask_mini.sh ile)"
             echo "  collab : Turn-based işbirliği"
-            echo "  auto   : Otonom (build + kod yazma)"
             echo "  plan   : Görevi analiz et → alt adımlara böl → uygula"
             echo ""
             echo "Durum: $0 --status"
@@ -84,8 +83,8 @@ fi
 
 [[ -z "$MY_ROLE" ]] && echo "Hata: --role gerekli (main|mini) veya --status kullan" && exit 1
 [[ "$MY_ROLE" != "main" && "$MY_ROLE" != "mini" ]] && echo "Hata: role = main|mini" && exit 1
-[[ "$MODE" != "qa" && "$MODE" != "collab" && "$MODE" != "auto" && "$MODE" != "plan" ]] && \
-    echo "Hata: mode = qa|collab|auto|plan" && exit 1
+[[ "$MODE" != "qa" && "$MODE" != "collab" && "$MODE" != "plan" ]] && \
+    echo "Hata: mode = qa|collab|plan" && exit 1
 [[ ! -x "$CLAUDE" ]] && echo "Hata: Claude bulunamadı: $CLAUDE" && exit 1
 
 # run_py SCRIPT_HEREDOC_VAR STDIN_DATA [extra args...]
@@ -503,61 +502,6 @@ run_collab() {
 }
 
 # ================================================================
-# === Auto Modu (Build Feedback Loop) ===
-# ================================================================
-run_auto() {
-    log "$MY_ROLE" "=== Auto Modu | $MODEL ==="
-    local idle=0 step_info="${1:-}"
-
-    while true; do
-        touch_heartbeat "$MY_ROLE"
-        check_conflicts || { sleep 10; continue; }
-        check_seq_integrity || true
-
-        if ! is_my_turn "$MY_ROLE"; then
-            idle=$((idle + 1))
-            [[ $idle -ge $MAX_IDLE ]] && break
-            sleep "$POLL"; continue
-        fi
-
-        idle=0
-        local context files=""
-        context=$(get_context "$CONTEXT_SIZE")
-        local seq; seq=$(get_last_seq)
-        [[ $seq -le 4 ]] && files=$(read_project_files)
-
-        # Main: build feedback
-        local build_section=""
-        if [[ "$MY_ROLE" == "main" ]]; then
-            local build_out
-            build_out=$(run_build_with_feedback) || true
-            local build_status; build_status=$(printf '%s' "$build_out" | head -1)
-
-            if [[ "$build_status" == "BUILD_SUCCESS" ]]; then
-                build_section="=== BUILD: ✅ BAŞARILI ==="
-            else
-                build_section="=== BUILD: ❌ HATA ===
-$(printf '%s' "$build_out" | tail -n +2 | head -40)"
-            fi
-        fi
-
-        local reply
-        reply=$(call_claude "$MY_ROLE" "$(collab_prompt "$context" "$files" "$step_info")
-$build_section") || break
-
-        printf '%s' "$reply" | grep -q '```swift' && {
-            apply_code "$reply" | while read -r l; do log "$MY_ROLE" "  $l"; done
-        }
-
-        send_msg "$MY_ROLE" "$reply"
-
-        printf '%s' "$reply" | grep -q '\[TAMAMLANDI\]' && { log "$MY_ROLE" "TAMAMLANDI!"; break; }
-        sleep "$POLL"
-    done
-    log "$MY_ROLE" "=== Auto durdu ==="
-}
-
-# ================================================================
 # === Plan Modu — Sadece main, Mini'ye QA üzerinden kod yazdırır ===
 # ================================================================
 
@@ -769,7 +713,6 @@ log "$MY_ROLE" "=== YouDown Brain v3 | role=$MY_ROLE mode=$MODE model=$MODEL ===
 case "$MODE" in
     qa)     run_qa ;;
     collab) run_collab ;;
-    auto)   run_auto ;;
     plan)   run_plan ;;
 esac
 
