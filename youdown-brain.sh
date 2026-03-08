@@ -418,26 +418,20 @@ get_file_tree() {
 
 read_project_files() {
     local ptype; ptype=$(detect_project_type)
-    local ext lang
-    case "$ptype" in
-        react) ext='\( -name "*.jsx" -o -name "*.js" -o -name "*.css" -o -name "*.tsx" \)'; lang="jsx" ;;
-        swift) ext='-name "*.swift"'; lang="swift" ;;
-        *)     ext='-name "*.js"'; lang="js" ;;
-    esac
 
-    local srcdir="$PROJECT_ROOT/src"
-    [[ "$ptype" == "swift" ]] && srcdir="$PROJECT_ROOT/Sources"
-    [[ ! -d "$srcdir" ]] && srcdir="$PROJECT_ROOT"
-
-    find "$srcdir" $ext 2>/dev/null | sort | while IFS= read -r path; do
-        [[ -f "$path" ]] && printf '### %s\n```%s\n%s\n```\n\n' \
-            "${path#$PROJECT_ROOT/}" "$lang" "$(cat "$path")"
-    done
+    if [[ "$ptype" == "react" ]]; then
+        find "$PROJECT_ROOT/src" \( -name "*.jsx" -o -name "*.js" -o -name "*.css" -o -name "*.tsx" -o -name "*.ts" \) 2>/dev/null | sort | while IFS= read -r path; do
+            [[ -f "$path" ]] && printf '### %s\n```jsx\n%s\n```\n\n' "${path#$PROJECT_ROOT/}" "$(cat "$path")"
+        done
+    elif [[ "$ptype" == "swift" ]]; then
+        find "$PROJECT_ROOT/Sources" -name "*.swift" 2>/dev/null | sort | while IFS= read -r path; do
+            [[ -f "$path" ]] && printf '### %s\n```swift\n%s\n```\n\n' "${path#$PROJECT_ROOT/}" "$(cat "$path")"
+        done
+    fi
 
     # Config dosyaları
     for cfg in package.json vite.config.js vite.config.ts Package.swift; do
-        [[ -f "$PROJECT_ROOT/$cfg" ]] && printf '### %s\n```\n%s\n```\n\n' \
-            "$cfg" "$(cat "$PROJECT_ROOT/$cfg")"
+        [[ -f "$PROJECT_ROOT/$cfg" ]] && printf '### %s\n```\n%s\n```\n\n' "$cfg" "$(cat "$PROJECT_ROOT/$cfg")"
     done
 }
 
@@ -446,9 +440,11 @@ read_affected_files() {
     local ptype; ptype=$(detect_project_type)
     local lang; [[ "$ptype" == "react" ]] && lang="jsx" || lang="swift"
     printf '%s' "$file_list" | while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
         local full="$PROJECT_ROOT/$f"
         [[ -f "$full" ]] && printf '### %s\n```%s\n%s\n```\n\n' "$f" "$lang" "$(cat "$full")"
     done
+    return 0
 }
 
 _APPLY_CODE_PY='
