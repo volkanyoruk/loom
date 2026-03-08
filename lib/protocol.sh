@@ -167,13 +167,17 @@ call_claude() {
     local role="$1" prompt="$2"
     local bin="${CLAUDE_BIN:-$(which claude 2>/dev/null || find "$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin /opt/homebrew/bin -name claude 2>/dev/null | head -1)}"
     local model="${CLAUDE_MODEL:-claude-sonnet-4-6}"
+    # Prompt'u temp dosyaya yaz — uzun prompt ve özel karakter sorunlarını çözer
+    local tmp; tmp=$(mktemp /tmp/yd_prompt.XXXXXX)
+    printf '%s' "$prompt" > "$tmp"
 
     for i in $(seq 0 $((MAX_RETRIES - 1))); do
         local reply
-        reply=$(env -u CLAUDECODE "$bin" --model "$model" -p "$prompt" 2>>"$LOG_DIR/${role}_stderr.log")
+        reply=$(env -u CLAUDECODE "$bin" --model "$model" -p "$(cat "$tmp")" 2>>"$LOG_DIR/${role}_stderr.log")
         local exit_code=$?
 
         if [ $exit_code -eq 0 ] && [ -n "$reply" ] && [ ${#reply} -gt 20 ]; then
+            rm -f "$tmp"
             printf '%s' "$reply"
             return 0
         fi
@@ -183,6 +187,7 @@ call_claude() {
         sleep "$wait"
     done
 
+    rm -f "$tmp"
     log "$role" "FATAL: Claude $MAX_RETRIES denemede cevap veremedi."
     return 1
 }
