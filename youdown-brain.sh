@@ -11,7 +11,8 @@ source "$AGENTS/lib/protocol.sh"
 # === Defaults ===
 MY_ROLE="" MODE="qa" POLL=2 MAX_IDLE=300
 CONTEXT_SIZE=35000 PROJECT_ROOT="$(cd "$AGENTS/.." && pwd)"
-CLAUDE="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
+CLAUDE="${CLAUDE_BIN:-$(find "$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin /opt/homebrew/bin -name claude -type f 2>/dev/null | head -1)}"
+[[ -z "$CLAUDE" ]] && CLAUDE="$(which claude 2>/dev/null || true)"
 MODEL="${CLAUDE_MODEL:-claude-opus-4-6}"
 STATUS_FILE="$AGENTS/task_status.json"
 BUILD_MAX_RETRY=3
@@ -135,13 +136,15 @@ PY
 }
 
 save_plan_steps() {
+    # Temp script dosyası + JSON stdin pipe — heredoc/pipe stdin çakışması yok
     local plan_json="$1"
-    python3 - "$STATUS_FILE" << PY
+    local script; script=$(mktemp)
+    cat > "$script" << 'PY'
 import json, sys
 from datetime import datetime, timezone
 
 path = sys.argv[1]
-plan = json.loads("""$plan_json""")
+plan = json.load(sys.stdin)
 data = json.load(open(path))
 
 steps = []
@@ -170,6 +173,8 @@ data["updated_at"] = datetime.now(timezone.utc).isoformat()
 json.dump(data, open(path,'w'), ensure_ascii=False, indent=2)
 print(f"Plan kaydedildi: {len(steps)} adım")
 PY
+    printf '%s' "$plan_json" | python3 "$script" "$STATUS_FILE"
+    rm -f "$script"
 }
 
 update_step_status() {
@@ -635,17 +640,18 @@ for s in data['steps']:
 PY
 )"
 
-    # Mini'ye planı gönder
+    # Mini'ye planı gönder — env var ile, stdin çakışması yok
     local plan_summary
-    plan_summary=$(python3 -c "
-import json, sys
-data = json.loads(sys.argv[1])
+    plan_summary=$(PLAN_JSON="$plan_json" python3 << 'PY'
+import json, os
+data = json.loads(os.environ['PLAN_JSON'])
 steps = data.get('steps',[])
-text = f\"Görev: {data.get('analysis','')}\\n\\nAdımlar:\\n\"
+text = f"Görev: {data.get('analysis','')}\n\nAdımlar:\n"
 for s in steps:
-    text += f\"{s['id']}. {s['desc']} ({', '.join(s.get('affected_files',[]))})\\n\"
+    text += f"{s['id']}. {s['desc']} ({', '.join(s.get('affected_files',[]))})\n"
 print(text)
-" "$plan_json" 2>/dev/null)
+PY
+)
 
     send_msg "main" "PLAN HAZIR — Başlıyoruz.\n\n$plan_summary\n\nİmplementasyona geç."
 

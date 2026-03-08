@@ -46,14 +46,18 @@ get_last_seq() {
 }
 
 next_seq() {
-    # flock ile race condition'ı engelle
-    local lockfile="$MESSAGES_DIR/.seq.lock"
-    (
-        flock -w 5 200 2>/dev/null || true
-        local last
-        last=$(get_last_seq)
-        printf '%03d' $((last + 1))
-    ) 200>"$lockfile"
+    # mkdir atomik lock — macOS/Linux portable, race condition yok
+    local lockdir="$MESSAGES_DIR/.seq.lock"
+    local waited=0
+    while ! mkdir "$lockdir" 2>/dev/null; do
+        waited=$((waited + 1))
+        [ $waited -ge 5 ] && break   # max 5s bekle
+        sleep 1
+    done
+    local result
+    result=$(printf '%03d' $(($(get_last_seq) + 1)))
+    rm -rf "$lockdir"
+    printf '%s' "$result"
 }
 
 # === Turn Check ===
