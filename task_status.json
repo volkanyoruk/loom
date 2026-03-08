@@ -1,65 +1,143 @@
 {
-  "task_id": "b341a1cb",
-  "task": "downloadedFileSize: Int64? alanini DownloadItem'a ekle, DownloadRowView'da ByteCountFormatter ile formatli goster",
-  "phase": "implementation",
-  "created_at": "2026-03-08T17:17:18.214710+00:00",
-  "updated_at": "2026-03-08T17:27:47.771331+00:00",
+  "task_id": "bb3dfec1",
+  "task": "downloadedFileSize alanini DownloadItem'a ekle",
+  "phase": "done",
+  "created_at": "2026-03-08T17:50:28.694024+00:00",
+  "updated_at": "2026-03-08T17:57:59.089749+00:00",
   "steps": [
     {
       "id": 1,
-      "desc": "DownloadItem modeline downloadedFileSize: Int64? = nil alanı ekle. Codable conformance varsa CodingKeys ve decoder'ı güncelle (decodeIfPresent).",
+      "desc": "DownloadItem modeline opsiyonel downloadedFileSize: Int64? alanını ekle; initializer, Codable ve varsayılan üretim noktalarını nil ile geriye uyumlu bırak.",
       "assignee": "mini",
       "affected_files": [
         "Sources/YouTubeDownloader/Models/DownloadItem.swift"
       ],
-      "test_plan": "Proje derlenir, mevcut DownloadItem oluşturma noktaları hatasız çalışır, yeni alan nil olarak gelir.",
-      "status": "failed",
+      "test_plan": "swift build başarılı olmalı; mevcut JSON/fixture verileri yeni alan olmadan decode edilebilmeli ve yeni DownloadItem örnekleri downloadedFileSize verilmeden oluşturulabilmeli.",
+      "status": "done",
       "build_result": null,
       "test_result": null,
       "retry_count": 0,
-      "error_summary": "Build 3 denemede düzeltilemedi"
+      "error_summary": null
     },
     {
       "id": 2,
-      "desc": "DownloadManager'da indirme tamamlandığında (status = .completed) FileManager.attributesOfItem ile dosya boyutunu oku ve item.downloadedFileSize'a ata.",
+      "desc": "HistoryItem modelini DownloadItem ile hizala ve completed item snapshot'ında downloadedFileSize bilgisinin kaybolmamasını sağla.",
+      "assignee": "mini",
+      "affected_files": [
+        "Sources/YouTubeDownloader/Models/HistoryItem.swift"
+      ],
+      "test_plan": "DownloadItem -> HistoryItem dönüşümünde boyut değeri korunmalı; eski history kayıtları yeni alan olmadan decode edilmeye devam etmeli.",
+      "status": "done",
+      "build_result": null,
+      "test_result": null,
+      "retry_count": 0,
+      "error_summary": null
+    },
+    {
+      "id": 3,
+      "desc": "DownloadManager içinde indirme tamamlandıktan ve final output path netleştikten sonra gerçek dosya boyutunu oku, ardından güncellenmiş DownloadItem snapshot'ını publish et.",
       "assignee": "mini",
       "affected_files": [
         "Sources/YouTubeDownloader/Services/DownloadManager.swift"
       ],
-      "test_plan": "Bir dosya indirildiğinde DownloadItem.downloadedFileSize değerinin nil olmayan pozitif bir Int64 değeri olduğu doğrulanır.",
-      "status": "failed",
+      "test_plan": "Küçük bir indirme tamamlanınca emitted/completed item üzerinde downloadedFileSize > 0 görülmeli; build ve varsa servis testi başarılı olmalı.",
+      "status": "done",
       "build_result": null,
       "test_result": null,
       "retry_count": 0,
-      "error_summary": "Build 3 denemede düzeltilemedi"
+      "error_summary": null
     },
     {
-      "id": 3,
-      "desc": "DownloadRowView'da ByteCountFormatter ile formatlı boyut gösterimi ekle. downloadedFileSize nil değilse Text olarak göster, nil ise gizle.",
+      "id": 4,
+      "desc": "Persistence katmanında yeni opsiyonel alanı güvenli şekilde encode/decode et; queue/history verisi saklanıyorsa backward compatibility korunsun.",
       "assignee": "mini",
       "affected_files": [
-        "Sources/YouTubeDownloader/Views/DownloadRowView.swift"
+        "Sources/YouTubeDownloader/Utilities/HistoryManager.swift",
+        "Sources/YouTubeDownloader/Utilities/UserDefaultsManager.swift"
       ],
-      "test_plan": "Tamamlanmış indirmede boyut etiketi görünür (ör. '142.5 MB'). Devam eden veya başarısız indirmede boyut gösterilmez.",
-      "status": "in_progress",
+      "test_plan": "Eski saklanmış payload'lar hata vermeden yüklenmeli; yeni payload encode edilip tekrar decode edildiğinde downloadedFileSize değeri korunmalı.",
+      "status": "done",
+      "build_result": null,
+      "test_result": null,
+      "retry_count": 0,
+      "error_summary": null
+    },
+    {
+      "id": 5,
+      "desc": "DownloadQueueViewModel manager'dan gelen downloadedFileSize güncellemesini @MainActor state'ine uygulasın ve gerekiyorsa ByteCountFormatter tabanlı gösterim verisini hazırlasın.",
+      "assignee": "mini",
+      "affected_files": [
+        "Sources/YouTubeDownloader/ViewModels/DownloadQueueViewModel.swift"
+      ],
+      "test_plan": "ViewModel testi veya manuel doğrulamada completed item update'i main actor üzerinde publish edilmeli ve observable queue/history state'i yeni boyut değeriyle yenilenmeli.",
+      "status": "done",
+      "build_result": null,
+      "test_result": null,
+      "retry_count": 0,
+      "error_summary": null
+    },
+    {
+      "id": 6,
+      "desc": "Queue ve history arayüzünde downloadedFileSize mevcutsa insan okunur formatta göster; alan yoksa mevcut görünüm ve durum etiketleri değişmesin.",
+      "assignee": "mini",
+      "affected_files": [
+        "Sources/YouTubeDownloader/Views/DownloadRowView.swift",
+        "Sources/YouTubeDownloader/Views/HistoryView.swift"
+      ],
+      "test_plan": "UI önizleme veya manuel çalıştırmada completed satırlarda boyut görünmeli, in-progress/queued satırlarda layout regression olmamalı; swift build tekrar başarılı olmalı.",
+      "status": "done",
       "build_result": null,
       "test_result": null,
       "retry_count": 0,
       "error_summary": null
     }
   ],
-  "steps_total": 3,
-  "steps_done": 0,
-  "current_step_id": 3,
+  "steps_total": 6,
+  "steps_done": 6,
+  "current_step_id": 6,
   "blockers": [],
-  "build_history": [],
+  "build_history": [
+    {
+      "step_id": 1,
+      "success": true,
+      "error_type": "",
+      "timestamp": "2026-03-08T17:53:29.980051+00:00"
+    },
+    {
+      "step_id": 2,
+      "success": true,
+      "error_type": "",
+      "timestamp": "2026-03-08T17:54:21.945909+00:00"
+    },
+    {
+      "step_id": 3,
+      "success": true,
+      "error_type": "",
+      "timestamp": "2026-03-08T17:55:16.945822+00:00"
+    },
+    {
+      "step_id": 4,
+      "success": true,
+      "error_type": "",
+      "timestamp": "2026-03-08T17:56:11.982393+00:00"
+    },
+    {
+      "step_id": 5,
+      "success": true,
+      "error_type": "",
+      "timestamp": "2026-03-08T17:57:04.090363+00:00"
+    },
+    {
+      "step_id": 6,
+      "success": true,
+      "error_type": "",
+      "timestamp": "2026-03-08T17:57:58.993320+00:00"
+    }
+  ],
   "lessons": [],
-  "analysis": "DownloadItem modeline optional Int64 tipinde downloadedFileSize alanı eklenecek. DownloadManager indirme tamamlandığında FileManager ile dosya boyutunu okuyup bu alana yazacak. DownloadRowView'da ByteCountFormatter kullanılarak kullanıcıya okunabilir formatta (ör. 45.2 MB) gösterilecek.",
+  "analysis": "downloadedFileSize alanı yalnızca DownloadItem modeline eklenmemeli; indirme tamamlandığında gerçek dosya boyutu DownloadManager tarafından ölçülüp DownloadQueueViewModel üzerinden UI ve varsa persistence katmanına taşınmalıdır. Swift 6 strict concurrency açısından alanı Int64? olarak opsiyonel tutmak, eski kayıtlarla geriye uyumu korur ve actor sınırlarında immutable DownloadItem kopyalarıyla state güncellemek en düşük riskli yaklaşımdır.",
   "acceptance_criteria": [
-    "DownloadItem modelinde downloadedFileSize: Int64? alanı mevcut ve nil olarak başlatılıyor",
-    "İndirme tamamlandığında dosya boyutu FileManager ile okunup downloadedFileSize'a yazılıyor",
-    "DownloadRowView'da boyut ByteCountFormatter.countStyle = .file ile formatlanıp gösteriliyor",
-    "downloadedFileSize nil olduğunda boyut bilgisi gizleniyor",
-    "Swift 6 strict concurrency uyumlu, Sendable conformance korunuyor"
+    "DownloadItem ve onu kullanan model/persistence akışları downloadedFileSize alanını eski kayıtları bozmadan encode/decode edebilir.",
+    "Başarıyla tamamlanan bir indirmede DownloadItem.downloadedFileSize gerçek final dosya boyutuyla doldurulur ve queue/history arayüzünde mevcut layout bozulmadan gösterilir."
   ]
 }

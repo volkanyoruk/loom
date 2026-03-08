@@ -20,7 +20,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Eski mesajlari arsivle (silme, tasi)
-if ls "$MESSAGES_DIR"/*.json &>/dev/null; then
+if ls "$MESSAGES_DIR"/*.json 2>/dev/null | grep -q .; then
     ARCHIVE_DIR="$AGENTS_DIR/archive/$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$ARCHIVE_DIR"
     mv "$MESSAGES_DIR"/*.json "$ARCHIVE_DIR/"

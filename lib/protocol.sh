@@ -171,6 +171,15 @@ _call_claude_backend() {
     env -u CLAUDECODE "$bin" --model "$model" -p "$prompt" 2>>"$LOG_DIR/${role}_stderr.log"
 }
 
+_call_gemini_backend() {
+    local prompt="$1" role="$2"
+    local bin="${GEMINI_BIN:-$(which gemini 2>/dev/null || echo "$HOME/.npm-global/bin/gemini")}"
+    local model="${GEMINI_MODEL:-}"
+    local args=(-p "$prompt")
+    [[ -n "$model" ]] && args=(--model "$model" -p "$prompt")
+    "$bin" "${args[@]}" 2>>"$LOG_DIR/${role}_stderr.log" | grep -v "^Loaded cached\|^Loading extension"
+}
+
 _call_codex_backend() {
     local prompt="$1" role="$2"
     local bin="${CODEX_BIN:-$(which codex 2>/dev/null || echo "$HOME/.npm-global/bin/codex")}"
@@ -193,6 +202,8 @@ call_claude() {
         local reply
         if [[ "$backend" == "codex" ]]; then
             reply=$(_call_codex_backend "$prompt" "$role")
+        elif [[ "$backend" == "gemini" ]]; then
+            reply=$(_call_gemini_backend "$prompt" "$role")
         else
             reply=$(_call_claude_backend "$prompt" "$role")
         fi

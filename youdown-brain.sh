@@ -624,11 +624,11 @@ run_plan() {
 import sys, json
 text = sys.stdin.read()
 start = text.find("{")
-end = text.rfind("}")
-if start == -1 or end == -1 or end <= start:
+if start == -1:
     print("PARSE_ERROR: JSON bulunamadi", file=sys.stderr); sys.exit(1)
 try:
-    parsed = json.loads(text[start:end+1])
+    # raw_decode: ilk tam JSON objesini alır, sonrasını yok sayar
+    parsed, _ = json.JSONDecoder().raw_decode(text[start:])
     print(json.dumps(parsed, ensure_ascii=False))
 except Exception as e:
     print("PARSE_ERROR:" + str(e), file=sys.stderr); sys.exit(1)
