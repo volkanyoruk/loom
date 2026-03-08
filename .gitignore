@@ -1,0 +1,20 @@
+# Runtime dosyaları
+messages/
+logs/
+archive/
+
+# Geçici
+*.txt
+*.flag
+*.log
+*.tmp
+*.lock
+.mini_busy
+
+# Syncthing
+*.sync-conflict-*
+.stfolder
+.stignore
+
+# macOS
+.DS_Store
