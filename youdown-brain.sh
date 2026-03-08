@@ -1,6 +1,6 @@
 #!/bin/bash
 # youdown-brain.sh — YouDown AI Brain
-# Kullanım: ./youdown-brain.sh --role main|mini --mode qa|collab|plan
+# Kullanım: ./youdown-brain.sh --role ece|ceylin --mode qa|collab|plan
 #           ./youdown-brain.sh --status
 
 set -euo pipefail
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
         --project) PROJECT_ROOT="$2"; shift 2 ;;
         --status)  SHOW_STATUS=true; shift ;;
         --help)
-            echo "Kullanım: $0 --role main|mini --mode qa|collab|plan"
+            echo "Kullanım: $0 --role ece|ceylin --mode qa|collab|plan"
             echo "  qa     : Soru-cevap daemon (ask_mini.sh ile)"
             echo "  collab : Turn-based işbirliği"
             echo "  plan   : Görevi analiz et → alt adımlara böl → uygula"
@@ -81,8 +81,8 @@ PY
     exit 0
 fi
 
-[[ -z "$MY_ROLE" ]] && echo "Hata: --role gerekli (main|mini) veya --status kullan" && exit 1
-[[ "$MY_ROLE" != "main" && "$MY_ROLE" != "mini" ]] && echo "Hata: role = main|mini" && exit 1
+[[ -z "$MY_ROLE" ]] && echo "Hata: --role gerekli (ece|ceylin) veya --status kullan" && exit 1
+[[ "$MY_ROLE" != "ece" && "$MY_ROLE" != "ceylin" ]] && echo "Hata: role = ece|ceylin" && exit 1
 [[ "$MODE" != "qa" && "$MODE" != "collab" && "$MODE" != "plan" ]] && \
     echo "Hata: mode = qa|collab|plan" && exit 1
 [[ ! -x "$CLAUDE" ]] && echo "Hata: Claude bulunamadı: $CLAUDE" && exit 1
@@ -97,10 +97,10 @@ run_py() {
     local ec=$?; rm -f "$tmp"; return $ec
 }
 
-PEER_ROLE=$([[ "$MY_ROLE" == "main" ]] && echo "mini" || echo "main")
-INBOX="$AGENTS/ask_mini.txt"
-OUTBOX="$AGENTS/mini_reply.txt"
-BUSY="$AGENTS/.mini_busy"
+PEER_ROLE=$([[ "$MY_ROLE" == "ece" ]] && echo "ceylin" || echo "ece")
+INBOX="$AGENTS/ask_ceylin.txt"
+OUTBOX="$AGENTS/ceylin_reply.txt"
+BUSY="$AGENTS/.ceylin_busy"
 
 # ================================================================
 # === Status Yönetimi ===
@@ -161,7 +161,7 @@ for i, s in enumerate(plan.get("steps", []), 1):
     steps.append({
         "id": i,
         "desc": s.get("desc",""),
-        "assignee": "mini",
+        "assignee": "ceylin",
         "affected_files": s.get("affected_files", []),
         "test_plan": s.get("test_plan",""),
         "status": "pending",
@@ -239,7 +239,7 @@ PY
 qa_prompt() {
     local history="$1" question="$2"
     cat << EOF
-Sen YouDown projesinin $MY_ROLE Claude'usun (Opus 4.6). Swift 6 + SwiftUI + yt-dlp + ffmpeg.
+Sen YouDown projesinin ${MY_ROLE^} Claude'usun (Opus 4.6). Swift 6 + SwiftUI + yt-dlp + ffmpeg.
 Kısa, teknik, Türkçe cevap ver. Kod yazarken tam çalışır Swift 6 yaz.
 
 === KONUŞMA GEÇMİŞİ ===
@@ -335,10 +335,10 @@ EOF
 
 collab_prompt() {
     local context="$1" files="$2" step_info="${3:-}"
-    if [[ "$MY_ROLE" == "main" ]]; then
+    if [[ "$MY_ROLE" == "ece" ]]; then
         cat << EOF
-Sen YouDown ARCHITECT Claude'usun (Ana Mac, Opus 4.6).
-Mac Mini'nin kodunu review et, eksikleri tamamla, tüm iş bitince [TAMAMLANDI] yaz. Türkçe.
+Sen Ece'sin — YouDown projesinin mimar Claude'u (Opus 4.6).
+Ceylin'in kodunu review et, eksikleri tamamla, tüm iş bitince [TAMAMLANDI] yaz. Türkçe.
 $step_info
 
 === PROJE DOSYALARI ===
@@ -351,7 +351,7 @@ Sıra sende:
 EOF
     else
         cat << EOF
-Sen YouDown IMPLEMENTER Claude'usun (Mac Mini, Opus 4.6).
+Sen Ceylin'sin — YouDown projesinin uygulayıcı Claude'u (Opus 4.6).
 Görevi analiz et, tam çalışır Swift 6 kodu yaz, [TAMAMLANDI] ile bitir. Türkçe.
 KOD FORMATI: ### Sources/Dosya.swift ardından \`\`\`swift blok \`\`\`
 $step_info
@@ -370,7 +370,7 @@ EOF
 build_fix_prompt() {
     local errors="$1" affected_files="$2"
     cat << EOF
-Sen YouDown IMPLEMENTER Claude'usun (Mac Mini, Opus 4.6).
+Sen Ceylin'sin — YouDown projesinin uygulayıcı Claude'u (Opus 4.6).
 Swift build HATALI. Hataları düzelt, sadece değişen dosyaları döndür. Türkçe.
 KOD FORMATI: ### Sources/Dosya.swift ardından \`\`\`swift blok \`\`\`
 
@@ -493,7 +493,7 @@ run_qa() {
         last_checksum=""
         log "$MY_ROLE" "Soru #$q_count: ${question:0:80}..."
 
-        send_msg "main_qa" "$question"
+        send_msg "ece_qa" "$question"
         local history
         history=$(get_context $((CONTEXT_SIZE / 2)))
 
@@ -578,7 +578,7 @@ ask_mini_for_code() {
 step_code_prompt() {
     local step_id="$1" step_desc="$2" step_files="$3" existing_code="$4"
     cat << EOF
-Sen YouDown IMPLEMENTER Claude'usun (Mac Mini, Opus 4.6).
+Sen Ceylin'sin — YouDown projesinin uygulayıcı Claude'u (Opus 4.6).
 Aşağıdaki adımı tam olarak uygula. Çalışır Swift 6 kodu yaz. Türkçe yorum yeterli.
 KOD FORMATI: ### Sources/Dosya/Adi.swift ardından \`\`\`swift ... \`\`\`
 Sadece değişen dosyaları yaz. Sonunda [TAMAMLANDI] ekle.
@@ -592,8 +592,8 @@ EOF
 }
 
 run_plan() {
-    [[ "$MY_ROLE" != "main" ]] && {
-        log "$MY_ROLE" "Plan modu sadece main rolünde çalışır."; exit 1
+    [[ "$MY_ROLE" != "ece" ]] && {
+        log "$MY_ROLE" "Plan modu sadece Ece rolünde çalışır."; exit 1
     }
 
     # Görev al

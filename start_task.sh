@@ -8,10 +8,10 @@ set -euo pipefail
 AGENTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$AGENTS_DIR/lib/protocol.sh"
 
-TASK="${1:?Kullanim: $0 \"Gorev aciklamasi\" [--initiator main|mini]}"
+TASK="${1:?Kullanim: $0 \"Gorev aciklamasi\" [--initiator ece|ceylin]}"
 shift
 
-INITIATOR="main"
+INITIATOR="ece"
 while [[ $# -gt 0 ]]; do
     case $1 in
         --initiator) INITIATOR="$2"; shift 2 ;;
@@ -71,10 +71,10 @@ PY
 log "SYSTEM" "Gorev baslatildi: $TASK (initiator=$INITIATOR)"
 
 # initiator olmayan ilk konusur
-if [ "$INITIATOR" = "main" ]; then
-    FIRST="mini"
+if [ "$INITIATOR" = "ece" ]; then
+    FIRST="ceylin"
 else
-    FIRST="main"
+    FIRST="ece"
 fi
 
 echo ""
@@ -83,10 +83,10 @@ echo "Görev  : $TASK"
 echo "İlk    : $FIRST"
 echo ""
 echo "Başlatmak için:"
-echo "  Plan modu : ./youdown-brain.sh --role main --mode plan"
-echo "  Collab    : ./youdown-brain.sh --role main --mode collab"
-echo "  Mini      : ./youdown-brain.sh --role mini --mode collab"
+echo "  Plan modu : ./youdown-brain.sh --role ece --mode plan"
+echo "  Collab    : ./youdown-brain.sh --role ece --mode collab"
+echo "  Ceylin    : ./youdown-brain.sh --role ceylin --mode collab"
 echo ""
 echo "Durum takibi:"
 echo "  ./youdown-brain.sh --status"
-echo "  tail -f $LOG_DIR/main.log"
+echo "  tail -f $LOG_DIR/ece.log"

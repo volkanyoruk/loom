@@ -125,10 +125,10 @@ get_context() {
         local content=$(python3 -c "import json; print(json.load(open('$f'))['content'])")
         local label
         case "$from" in
-            main) label="ANA MAC" ;;
-            mini) label="MAC MINI" ;;
-            system) label="SYSTEM" ;;
-            *) label=$(echo "$from" | tr '[:lower:]' '[:upper:]') ;;
+            ece*)    label="ECE" ;;
+            ceylin*) label="CEYLİN" ;;
+            system)  label="SYSTEM" ;;
+            *)       label=$(echo "$from" | tr '[:lower:]' '[:upper:]') ;;
         esac
         printf '**%s:** %s\n\n---\n\n' "$label" "$content"
     done

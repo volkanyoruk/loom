@@ -1,11 +1,11 @@
 #!/bin/bash
-# Ana Mac'ten Mini'ye soru sor — cevabı stdout'a yazar
+# Ece'den Ceylin'e soru sor — cevabı stdout'a yazar
 # Kullanım: bash ask_mini.sh "sorun burada"
 
-AGENTS="$HOME/UYGULAMALAR/YouTubeDownloader/agents"
-INBOX="$AGENTS/ask_mini.txt"
-OUTBOX="$AGENTS/mini_reply.txt"
-BUSY="$AGENTS/.mini_busy"
+AGENTS="$(cd "$(dirname "$0")" && pwd)"
+INBOX="$AGENTS/ask_ceylin.txt"
+OUTBOX="$AGENTS/ceylin_reply.txt"
+BUSY="$AGENTS/.ceylin_busy"
 TIMEOUT=120
 
 QUESTION="$*"
@@ -17,7 +17,7 @@ printf '%s' "$QUESTION" > "$INBOX"
 
 # Cevap bekle
 WAITED=0
-printf "⏳ Mini düşünüyor" >&2
+printf "⏳ Ceylin düşünüyor" >&2
 while [ ! -f "$OUTBOX" ] || [ -f "$BUSY" ]; do
     sleep 1
     WAITED=$((WAITED + 1))
