@@ -1,34 +1,14 @@
 {
-  "task_id": "c534b891",
+  "task_id": "dbfbb5bd",
   "task": "Test: merhaba de",
-  "phase": "implementation",
-  "created_at": "2026-03-08T19:19:03.335450+00:00",
-  "updated_at": "2026-03-08T19:19:12.653504+00:00",
-  "steps": [
-    {
-      "id": 1,
-      "desc": "SwiftUI App entry point oluştur ve ana ekranda 'Merhaba' mesajı göster",
-      "assignee": "mini",
-      "affected_files": [
-        "Sources/App.swift"
-      ],
-      "test_plan": "Uygulama başlatıldığında ekranda 'Merhaba' yazısı görünür",
-      "status": "in_progress",
-      "build_result": null,
-      "test_result": null,
-      "retry_count": 0,
-      "error_summary": null
-    }
-  ],
-  "steps_total": 1,
+  "phase": "planning",
+  "created_at": "2026-03-08T19:46:29.980124+00:00",
+  "updated_at": "2026-03-08T19:46:30.010264+00:00",
+  "steps": [],
+  "steps_total": 0,
   "steps_done": 0,
-  "current_step_id": 1,
+  "current_step_id": 0,
   "blockers": [],
   "build_history": [],
-  "lessons": [],
-  "analysis": "Bu bir test görevidir. Proje dosya yapısı boş olduğundan, basit bir 'merhaba' çıktısı üreten minimal bir Swift yapısı oluşturulması yeterlidir. Herhangi bir karmaşık mimari gerektirmez.",
-  "acceptance_criteria": [
-    "Uygulama çalıştığında 'Merhaba' mesajı görüntülenir",
-    "Kod Swift 6 strict concurrency ile uyumlu derlenir"
-  ]
+  "lessons": []
 }

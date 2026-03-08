@@ -166,7 +166,7 @@ BACKOFF=(5 15 30)
 call_claude() {
     local role="$1" prompt="$2"
     local bin="${CLAUDE_BIN:-$(which claude 2>/dev/null || find "$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin /opt/homebrew/bin -name claude 2>/dev/null | head -1)}"
-    local model="${CLAUDE_MODEL:-claude-opus-4-6}"
+    local model="${CLAUDE_MODEL:-claude-sonnet-4-6}"
 
     for i in $(seq 0 $((MAX_RETRIES - 1))); do
         local reply

@@ -12,7 +12,7 @@ source "$AGENTS/lib/protocol.sh"
 MY_ROLE="" MODE="qa" POLL=2 MAX_IDLE=300
 CONTEXT_SIZE=35000 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$AGENTS/.." && pwd)}"
 CLAUDE="${CLAUDE_BIN:-$(which claude 2>/dev/null || find "$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin /opt/homebrew/bin -name claude 2>/dev/null | head -1)}"
-MODEL="${CLAUDE_MODEL:-claude-opus-4-6}"
+MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"
 STATUS_FILE="$AGENTS/task_status.json"
 BUILD_MAX_RETRY=3
 
