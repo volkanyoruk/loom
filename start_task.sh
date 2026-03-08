@@ -46,6 +46,28 @@ print(json.dumps(msg, ensure_ascii=False, indent=2))
 
 write_atomic "$MESSAGES_DIR/000_system_$(date +%s).json" "$BOOTSTRAP_JSON"
 
+# task_status.json'a görevi kaydet
+python3 - "$AGENTS_DIR/task_status.json" "$TASK" << 'PY'
+import json, sys, uuid
+from datetime import datetime, timezone
+path, task = sys.argv[1], sys.argv[2]
+data = {
+    "task_id": str(uuid.uuid4())[:8],
+    "task": task,
+    "phase": "planning",
+    "created_at": datetime.now(timezone.utc).isoformat(),
+    "updated_at": datetime.now(timezone.utc).isoformat(),
+    "steps": [],
+    "steps_total": 0,
+    "steps_done": 0,
+    "current_step_id": 0,
+    "blockers": [],
+    "build_history": [],
+    "lessons": []
+}
+json.dump(data, open(path, 'w'), ensure_ascii=False, indent=2)
+PY
+
 log "SYSTEM" "Gorev baslatildi: $TASK (initiator=$INITIATOR)"
 
 # initiator olmayan ilk konusur
@@ -56,15 +78,15 @@ else
 fi
 
 echo ""
-echo "=== C+ Protocol — Gorev Baslatildi ==="
-echo "Gorev: $TASK"
-echo "Ilk konusan: $FIRST"
+echo "=== YouDown Brain — Görev Başlatıldı ==="
+echo "Görev  : $TASK"
+echo "İlk    : $FIRST"
 echo ""
-echo "Baslatmak icin:"
-echo "  Ana Mac:  cd $AGENTS_DIR && ./agent.sh --role main"
-echo "  Mac Mini: cd $AGENTS_DIR && ./agent.sh --role mini"
+echo "Başlatmak için:"
+echo "  Plan modu : ./youdown-brain.sh --role main --mode plan"
+echo "  Collab    : ./youdown-brain.sh --role main --mode collab"
+echo "  Mini      : ./youdown-brain.sh --role mini --mode collab"
 echo ""
-echo "Izlemek icin:"
+echo "Durum takibi:"
+echo "  ./youdown-brain.sh --status"
 echo "  tail -f $LOG_DIR/main.log"
-echo "  tail -f $LOG_DIR/mini.log"
-echo "  ls -la $MESSAGES_DIR/"
