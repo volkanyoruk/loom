@@ -431,8 +431,9 @@ read_project_files() {
 
     # Config dosyaları
     for cfg in package.json vite.config.js vite.config.ts Package.swift; do
-        [[ -f "$PROJECT_ROOT/$cfg" ]] && printf '### %s\n```\n%s\n```\n\n' "$cfg" "$(cat "$PROJECT_ROOT/$cfg")"
+        [[ -f "$PROJECT_ROOT/$cfg" ]] && printf '### %s\n```\n%s\n```\n\n' "$cfg" "$(cat "$PROJECT_ROOT/$cfg")" || true
     done
+    return 0
 }
 
 read_affected_files() {
@@ -633,8 +634,8 @@ run_plan() {
 
     # ── Faz 0: Keşif — Main soru sorar, Mini projeyi inceleyerek cevaplar ──
     log "$MY_ROLE" "🔍 Keşif fazı başlıyor..."
-    local file_tree; file_tree=$(get_file_tree)
-    local existing_code; existing_code=$(read_project_files)
+    local file_tree; file_tree=$(get_file_tree) || true
+    local existing_code; existing_code=$(read_project_files) || true
 
     # Main soruları oluşturur
     local discovery_reply
