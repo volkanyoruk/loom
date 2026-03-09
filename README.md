@@ -1,259 +1,193 @@
 # youdown-brain
 
-**8 AI ajanin 4 ekip halinde otonom calistigi multi-agent pipeline sistemi.**
+**Akilli multi-agent pipeline. 8 ajan, 4 ekip, otomatik gorev yonlendirme.**
 
-Claude instance'lari C+ Protocol ile kanal bazli JSON mesajlasma yapar. Gorev planlama, dagitim, kod yazma, QA testi ve deploy sureci tamamen otomatiktir.
+Gorev karmasikligini analiz eder, gereken minimum ajan sayisini secer, prompt caching ile token tasarrufu yapar, bagimsiz gorevleri paralel calistirir.
 
-## v3 — Smart Pipeline (Onerilen)
-
-Akilli yonlendirme + prompt caching + paralel calisma. **%70-90 token tasarrufu.**
-
-```bash
-# Kurulum
-pip install -r requirements.txt
-export ANTHROPIC_API_KEY='sk-ant-...'
-
-# Kullanim
-python3 brain.py "Login sayfasi ekle" --project ~/myapp        # Otomatik strateji
-python3 brain.py "Bu fonksiyonu acikla" --agent ece             # Tek ajan
-python3 brain.py "Buyuk refactor" --strategy full               # Tam pipeline
-python3 brain.py --dashboard                                     # Web panel
 ```
-
-### Akilli Yonlendirme
-
-| Gorev Tipi | Strateji | Token | Ornek |
-|-----------|----------|-------|-------|
-| Basit soru | SINGLE (1 ajan) | ~2K | "React hook nasil yazilir?" |
-| Orta gorev | PAIR (dev + QA) | ~5K | "Bu fonksiyonu duzelt" |
-| Ekip isi | TEAM (2-3 ajan) | ~12K | "UI tasarimini yenile" |
-| Buyuk proje | FULL (tam pipeline) | ~23K | "Kullanici yonetim sistemi ekle" |
-
-### Token Tasarrufu
-
-- **Prompt caching**: Ajan kisiligi + proje dosyalari cache'lenir → %90 indirim
-- **Multi-turn**: Ayni ajan tekrar cagirildiginda onceki konusma hatirlanir
-- **Akilli yonlendirme**: Basit is icin 8 ajan calistirmaz, 1 yeterli
-- **Paralel calisma**: Bagimsiz gorevler ayni anda calisir
-
-### Web Dashboard
-
-```bash
-python3 brain.py --dashboard           # http://localhost:7777
-python3 brain.py --dashboard --port 8080
-python3 dashboard_v2.py                # Sadece dashboard
+Basit soru   →  1 ajan      ~2K token    "React hook nasil yazilir?"
+Orta gorev   →  dev + QA    ~5K token    "Bu fonksiyonu duzelt"
+Ekip isi     →  2-3 ajan    ~12K token   "UI tasarimini yenile"
+Buyuk proje  →  8 ajan      ~23K token   "Kullanici yonetim sistemi ekle"
 ```
-
-WebSocket ile canli akis — gorev gonderme formu, token istatistikleri, pipeline ilerleme.
 
 ---
 
-## Mimari
-
-```
-                    ┌─────────────────────────────┐
-                    │     ECE (Chief Architect)    │
-                    │     Plan olusturur           │
-                    └──────────┬──────────────────┘
-                               │
-                    ┌──────────▼──────────────────┐
-                    │   CEYLiN (Orchestrator)      │
-                    │   Gorevleri dagitir & takip   │
-                    └──┬───────────┬──────────┬───┘
-                       │           │          │
-          ┌────────────▼──┐  ┌────▼───────┐  ┌▼─────────────┐
-          │  TASARIM EKiBi │  │ BACKEND    │  │  QA / DEVOPS │
-          │  ismail+zeynep │  │ hasan+saki │  │ ahmet+huseyin│
-          │  kanal:tasarim │  │ kanal:back │  │  kanal: qa   │
-          └───────────────┘  └────────────┘  └──────────────┘
-```
-
-### Ajanlar
-
-| Ajan | Rol | Uzmanlık |
-|------|-----|----------|
-| **Ece** | Chief Architect | Mimari tasarim, plan olusturma, gorev kirilimi |
-| **Ceylin** | Project Manager / Orchestrator | Gorev dagitimi, Dev↔QA dongusu, eskalasyon |
-| **Ismail** | Senior Developer | Full-stack uygulama, Swift, React, Node.js |
-| **Zeynep** | UX Architect | Design system, UI/UX, erisilebirlik |
-| **Hasan** | Backend Architect | API tasarimi, veritabani, sistem mimarisi |
-| **Saki** | Frontend Developer | React, CSS, component gelistirme |
-| **Ahmet** | Reality Checker / QA | Test, kod inceleme, kalite kontrolu |
-| **Huseyin** | DevOps Engineer | CI/CD, deploy, altyapi, monitoring |
-
-### Ekipler ve Kanallar
-
-| Ekip | Kanal | Uyeler |
-|------|-------|--------|
-| Orkestrasyon | `genel` | Ece, Ceylin |
-| Tasarim | `tasarim` | Ismail, Zeynep |
-| Backend | `backend` | Hasan, Saki |
-| QA & DevOps | `qa` | Ahmet, Huseyin |
-
----
-
-## Kurulum
-
-### Gereksinimler
-
-- **macOS** veya **Linux**
-- **Python 3.6+**
-- **Claude Code CLI** (`claude` komutu PATH'te olmali)
-- **tmux** (panel gorunumu icin)
-
-### Adimlar
+## Hizli Baslangic
 
 ```bash
-# 1. Repo'yu klonla
 git clone https://github.com/volkanyoruk/youdown-brain.git
 cd youdown-brain
 
-# 2. Calistirma izni ver
-chmod +x *.sh lib/*.sh
+pip install -r requirements.txt
+export ANTHROPIC_API_KEY='sk-ant-...'
 
-# 3. Claude Code CLI'nin yuklu oldugunu dogrula
-claude --version
-
-# 4. (Opsiyonel) Model secimi
-export CLAUDE_MODEL=claude-sonnet-4-6    # varsayilan
-export CLAUDE_MODEL=claude-opus-4-6      # daha guclu, daha yavas
-```
-
-### Claude Code CLI Kurulumu
-
-```bash
-# npm ile
-npm install -g @anthropic-ai/claude-code
-
-# veya dogrudan
-curl -fsSL https://claude.ai/install.sh | sh
+python3 brain.py "Login sayfasi ekle" --project ~/myapp
 ```
 
 ---
 
 ## Kullanim
 
-### Tek Komutla Tam Pipeline
+### Gorev Calistirma
 
 ```bash
-./run_pipeline.sh "Login sayfasi ekle" --project /path/to/project
+# Otomatik strateji — sistem karmasikligi analiz eder
+python3 brain.py "Login sayfasi ekle" --project ~/myapp
+
+# Belirli bir ajan kullan
+python3 brain.py "Bu kodu acikla" --agent ece
+
+# Stratejiyi zorla
+python3 brain.py "Gorev" --strategy single     # Tek ajan
+python3 brain.py "Gorev" --strategy pair        # Developer + QA
+python3 brain.py "Gorev" --strategy team        # Ekip
+python3 brain.py "Gorev" --strategy full        # Tam pipeline
+
+# Model degistir
+python3 brain.py "Gorev" --model claude-opus-4-6
 ```
 
-Bu komut sirasiyla:
-1. Gorevi baslatir ve arsivler
-2. Ece plan olusturur (mimari + gorev kirilimi)
-3. Ceylin gorevleri ekiplere dagitir
-4. Her developer gorevi yapar → QA test eder → PASS/FAIL
-5. Basarisiz gorevler max 3 kez tekrarlanir, sonra eskale edilir
-
-### Adim Adim Calistirma
+### Web Dashboard
 
 ```bash
-# 1. Gorevi baslat
-./start_task.sh "Dark mode destegi ekle" --project ~/projects/myapp
-
-# 2. Ece plan olustursun
-./youdown-brain.sh --role ece --mode pipeline --project ~/projects/myapp
-
-# 3. Ceylin dagitsin ve yonetsin
-./youdown-brain.sh --role ceylin --mode pipeline --project ~/projects/myapp
-
-# 4. Worker daemon'lari baslat (ayri terminallerde)
-./youdown-brain.sh --role ismail --mode worker --project ~/projects/myapp
-./youdown-brain.sh --role hasan --mode worker --project ~/projects/myapp
-
-# 5. QA daemon'u baslat
-./youdown-brain.sh --role ahmet --mode qa --project ~/projects/myapp
+python3 brain.py --dashboard                    # http://localhost:7777
+python3 brain.py --dashboard --port 8080        # Farkli port
 ```
 
-### Web Dashboard (onerilen)
-
-```bash
-python3 dashboard.py
-# Tarayicida ac: http://localhost:7777
-```
-
-Canli guncellenen web paneli:
-- Pipeline durumu + ilerleme cubugu
-- Tum kanal mesajlari renkli gorunum
-- Ajan durumlari (canli/cevrimdisi)
-- Handoff ve QA sonuclari
-- QA istatistikleri
-- Ajan loglari
-
-Farkli port kullanmak icin: `python3 dashboard.py 8080`
-
-### Terminal Paneli (tmux — alternatif)
-
-```bash
-./panel.sh
-```
-
-3 pencereli tmux oturumu acar:
-- **Pencere 1:** Ece + Ceylin + Pipeline durumu
-- **Pencere 2:** Ismail + Zeynep + Hasan + Saki (worker'lar)
-- **Pencere 3:** Ahmet + Huseyin (QA & DevOps)
-
-### Durum Kontrolu
-
-```bash
-./youdown-brain.sh --status
-```
-
-### Serbest Isbirligi Modu
-
-```bash
-# Iki ajan arasinda sira tabanli sohbet
-./youdown-brain.sh --role ece --mode collab --project ~/projects/myapp
-./youdown-brain.sh --role ismail --mode collab --project ~/projects/myapp
-```
+Dashboard ozellikleri:
+- Gorev gonderme formu (strateji secimi dahil)
+- WebSocket ile anlik canli akis
+- Token kullanimi (input, cache hit, output, maliyet orani)
+- Pipeline ilerleme cubugu ve adim detaylari
+- Ajan aktivite takibi
 
 ---
 
-## C+ Protocol
+## Nasil Calisiyor
 
-Ajanlar arasi haberlesme altyapisi.
+### 1. Akilli Yonlendirme (router.py)
 
-### Mesajlasma
-
-- **Dosya formati:** `channels/<kanal>/NNN_role_timestamp.json`
-- **Atomik yazma:** `tmp` dosyasina yaz → `mv` ile tasima (partial read onleme)
-- **Sira numarasi:** Lock-based atomic seq (cakisma onleme)
-- **Turn sistemi:** Son mesaji yazan bekler, karsi taraf cevaplar
-
-### Mesaj Yapisi
-
-```json
-{
-  "seq": 1,
-  "from": "ece",
-  "channel": "genel",
-  "timestamp": 1773087423,
-  "content": "Plan hazirlandi, 5 adimlik gorev...",
-  "checksum": "3847291"
-}
-```
-
-### Handoff Sistemi
-
-Ekipler arasi gorev transferi:
-```
-Ceylin → Ismail: "Gorev #1: Login formu olustur"
-Ismail tamamlar → Ceylin QA'ya gonderir
-Ahmet test eder → PASS / FAIL
-FAIL → max 3 tekrar → eskalasyon
-```
-
-### Kanal Yapisi
+Gorev gelir → heuristik analiz + Haiku siniflandirma → minimum strateji secilir.
 
 ```
-channels/
-├── genel/       # Ece ↔ Ceylin
-├── tasarim/     # Ismail ↔ Zeynep
-├── backend/     # Hasan ↔ Saki
-├── qa/          # Ahmet ↔ Huseyin
-└── broadcast/   # Tum ekiplere duyuru
+"React hook nasil yazilir?"     →  SINGLE  (1 cagri, ~2K token)
+"Login fonksiyonunu duzelt"     →  PAIR    (dev + QA, ~5K token)
+"UI tasarimini komple yenile"   →  TEAM    (2-3 ajan, ~12K token)
+"E-ticaret sistemi kur"        →  FULL    (plan + dagit + QA, ~23K token)
 ```
+
+Ajan eslestirme:
+
+| Anahtar kelimeler | Ajan |
+|-------------------|------|
+| mimar, plan, strateji | Ece |
+| yaz, implement, gelistir, duzelt | Ismail |
+| ui, ux, tasarim, tema, renk | Zeynep |
+| api, endpoint, database, backend | Hasan |
+| component, frontend, react, css | Saki |
+| test, review, kontrol, kalite | Ahmet |
+| deploy, docker, ci/cd, nginx | Huseyin |
+
+### 2. Prompt Caching (engine.py)
+
+Anthropic API `cache_control` ile:
+
+```
+Ilk cagri:  Ajan prompt (300 tok) + Proje (4000 tok) = 4300 tok (tam fiyat)
+Sonraki:    Ayni prompt cached = 430 tok (0.1x fiyat)
+```
+
+16 cagrilik bir pipeline'da: **62,000 token tasarruf** (~%70).
+
+Multi-turn: Ayni ajan tekrar cagirildiginda onceki konusma hatirlanir — context tekrar gonderilmez.
+
+### 3. Paralel Calisma (pipeline.py)
+
+Topolojik siralama ile bagimsiz gorevler ayni anda calisir:
+
+```
+Ece plan:  [Adim1, Adim2, Adim3(dep:1,2), Adim4(dep:3)]
+
+Seviye 1:  Adim1 + Adim2  (paralel)
+Seviye 2:  Adim3          (1,2 bitmesini bekler)
+Seviye 3:  Adim4          (3 bitmesini bekler)
+```
+
+Sirayla: 4 tur × ortalama 30sn = 120sn
+Paralel: 3 tur × ortalama 30sn = 90sn (+ 2 gorev paralel)
+
+### 4. Dev-QA Dongusu
+
+```
+Developer kodu yazar
+    ↓
+Ahmet (QA) test eder
+    ↓
+PASS → sonraki gorev
+FAIL → developer'a geri bildirim (multi-turn, context korunur)
+    ↓
+Max 3 deneme → eskalasyon
+```
+
+QA multi-turn avantaji: Geri bildirim → duzeltme dongusunde proje dosyalari tekrar gonderilmez. Sadece "su sorunlari duzelt" mesaji gider.
+
+---
+
+## Mimari
+
+```
+                 ┌──────────────────────────────────┐
+                 │          brain.py                 │
+                 │   CLI giris noktasi               │
+                 └──────────┬───────────────────────┘
+                            │
+              ┌─────────────▼─────────────┐
+              │        router.py          │
+              │  SINGLE / PAIR / TEAM /   │
+              │  FULL strateji secimi     │
+              └─────────────┬─────────────┘
+                            │
+              ┌─────────────▼─────────────┐
+              │       pipeline.py         │
+              │  Paralel orchestration    │
+              │  Dev-QA loop              │
+              └─────────────┬─────────────┘
+                            │
+              ┌─────────────▼─────────────┐
+              │        engine.py          │
+              │  Anthropic API            │
+              │  Prompt caching           │
+              │  Multi-turn session       │
+              └───────────────────────────┘
+```
+
+### Ajanlar
+
+| Ajan | Rol | Ekip |
+|------|-----|------|
+| **Ece** | Chief Architect — plan olusturur, kod yazmaz | Orkestrasyon |
+| **Ceylin** | Orchestrator — dagitir, takip eder | Orkestrasyon |
+| **Ismail** | Senior Developer — fullstack implementasyon | Tasarim |
+| **Zeynep** | UX Architect — UI/UX, design system | Tasarim |
+| **Hasan** | Backend Architect — API, database | Backend |
+| **Saki** | Frontend Developer — React, CSS | Backend |
+| **Ahmet** | QA / Reality Checker — test, kalite kapisi | QA & DevOps |
+| **Huseyin** | DevOps Engineer — deploy, altyapi | QA & DevOps |
+
+### Stratejiler Detay
+
+**SINGLE** — Tek ajan, tek cagri.
+Soru, aciklama, review talebi. En uygun ajan otomatik secilir.
+
+**PAIR** — Developer + QA.
+Developer kodu yazar → Ahmet test eder. Basit bug fix, tek dosya degisikligi.
+
+**TEAM** — Ayni ekipten 2-3 ajan paralel.
+Ornk: Zeynep (UI tasarim) + Saki (frontend) ayni anda calisir → Ahmet onaylar.
+
+**FULL** — Tam pipeline.
+Ece plan yapar → bagimsiz gorevler paralel dagitilir → her biri QA'dan gecer → max 3 retry → eskalasyon.
 
 ---
 
@@ -261,79 +195,30 @@ channels/
 
 ```
 youdown-brain/
-├── brain.py                  # v3 — Ana giris noktasi (onerilen)
-├── engine.py                 # v3 — Anthropic API + prompt caching + session
-├── router.py                 # v3 — Akilli yonlendirme (SINGLE/PAIR/TEAM/FULL)
-├── pipeline.py               # v3 — Paralel pipeline + dev-qa dongusu
-├── dashboard_v2.py           # v3 — WebSocket dashboard
-├── requirements.txt          # Python bagimliliklari
+├── brain.py              # Ana giris noktasi — CLI + strateji dispatch
+├── engine.py             # Anthropic API client — caching + session + token tracking
+├── router.py             # Akilli yonlendirme — heuristik + Haiku siniflandirma
+├── pipeline.py           # Paralel pipeline — topo sort + dev-qa loop
+├── dashboard_v2.py       # Web dashboard — WebSocket + gorev gonderme
+├── requirements.txt      # anthropic, aiohttp, aiosqlite
 │
-├── youdown-brain.sh          # v2 — CLI tabanli (eski)
-├── start_task.sh             # v2 — Gorev baslat
-├── run_pipeline.sh           # v2 — Tek komut pipeline
-├── dashboard.py              # v2 — HTTP polling dashboard
-├── panel.sh                  # v2 — tmux panel
+├── agents/               # Ajan kisilik tanimlari (Markdown + YAML frontmatter)
+│   ├── ece.md            # Chief Architect
+│   ├── ceylin.md         # Orchestrator
+│   ├── ismail.md         # Senior Developer
+│   ├── zeynep.md         # UX Architect
+│   ├── hasan.md          # Backend Architect
+│   ├── saki.md           # Frontend Developer
+│   ├── ahmet.md          # Reality Checker / QA
+│   └── huseyin.md        # DevOps Engineer
 │
-├── lib/
-│   ├── protocol.sh           # C+ Protocol core (mesaj, seq, turn, heartbeat)
-│   ├── orchestrator.sh       # Ceylin'in gorev dagitim motoru
-│   ├── qa_gate.sh            # Ahmet'in QA test motoru
-│   ├── handoff.sh            # Ekipler arasi gorev transferi
-│   ├── channel_watcher.sh    # Canli kanal mesaj gorunumu
-│   ├── status_watcher.sh     # Pipeline ilerleme gorunumu
-│   └── msg_watcher.sh        # Eski mesaj gorunumu (geriye uyumluluk)
+├── teams/                # Ekip tanimlari
+│   ├── orkestrasyon.json
+│   ├── tasarim.json
+│   ├── backend.json
+│   └── qa.json
 │
-├── agents/                   # Ajan kisilik tanimlari
-│   ├── ece.md                # Chief Architect
-│   ├── ceylin.md             # Orchestrator
-│   ├── ismail.md             # Senior Developer
-│   ├── zeynep.md             # UX Architect
-│   ├── hasan.md              # Backend Architect
-│   ├── saki.md               # Frontend Developer
-│   ├── ahmet.md              # Reality Checker / QA
-│   └── huseyin.md            # DevOps Engineer
-│
-├── teams/                    # Ekip tanimlari
-│   ├── orkestrasyon.json     # Ece + Ceylin
-│   ├── tasarim.json          # Ismail + Zeynep
-│   ├── backend.json          # Hasan + Saki
-│   └── qa.json               # Ahmet + Huseyin
-│
-├── channels/                 # (runtime) Kanal mesajlari
-├── handoffs/                 # (runtime) Gorev transferleri + QA sonuclari
-├── logs/                     # (runtime) Ajan loglari
-└── archive/                  # (runtime) Arsivlenmis eski mesajlar
-```
-
----
-
-## Pipeline Akisi
-
-```
-1. PLANLAMA
-   Kullanici gorev verir → start_task.sh
-   Ece analiz eder → JSON plan olusturur
-   Plan: gorev kirilimi + atamalar + bagimliliklar + kabul kriterleri
-
-2. DAGITIM
-   Ceylin plani alir → gorevleri ekiplere atar
-   Bagimlilik sirasi: adim 1 bitmeden adim 2 baslamaz
-   Paralel gorevler ayni anda dagitilir
-
-3. UYGULAMA
-   Developer gorevi alir → Claude ile kod yazar
-   Kod ===FILE: path=== bloklari ile uygulanir
-   Guvenlik: dosya yolu proje kokunden cikamaz
-
-4. QA TESTI
-   Ahmet kodu test eder (build + Claude analizi)
-   PASS → gorev tamamlandi
-   FAIL → developer'a geri gider (max 3 deneme)
-   3 basarisiz deneme → Ceylin'e eskalasyon
-
-5. TAMAMLANMA
-   Tum adimlar PASS → pipeline bitti
-   Ozet rapor + istatistikler
+└── data/                 # (runtime) Pipeline state
 ```
 
 ---
@@ -344,54 +229,56 @@ youdown-brain/
 
 | Degisken | Varsayilan | Aciklama |
 |----------|-----------|----------|
-| `CLAUDE_MODEL` | `claude-sonnet-4-6` | Kullanilacak Claude modeli |
-| `CLAUDE_BIN` | `claude` (PATH'ten) | Claude CLI binary yolu |
-| `PROJECT_ROOT` | Repo ust dizini | Hedef proje dizini |
-| `ACTIVE_CHANNEL` | `genel` | Varsayilan mesajlasma kanali |
+| `ANTHROPIC_API_KEY` | (gerekli) | Anthropic API anahtari |
+| `CLAUDE_MODEL` | `claude-sonnet-4-6` | Model secimi |
 
 ### Ajan Ozellestirme
 
-Her ajanin davranisi `agents/<isim>.md` dosyasiyla tanimlanir. YAML frontmatter + Markdown:
+`agents/<isim>.md` dosyasini duzenleyin:
 
 ```yaml
 ---
 name: ece
-role: Chief Architect
-expertise: [system-design, task-decomposition, architecture]
-rules:
-  - Asla kod yazma, sadece plan olustur
-  - Her adima kabul kriterleri ekle
+role: chief-architect
 ---
 
-# Ece — Chief Architect
+# Ece — Bas Mimar
 
-Sen bir yazilim mimarisisin...
+Sen Ece, projelerin bas mimarisin...
 ```
 
-### Yeni Ekip Ekleme
+### Yeni Ajan / Ekip Ekleme
 
-`teams/` altina JSON dosyasi ekleyin:
-
+1. `agents/yeni_ajan.md` olustur
+2. `teams/yeni_ekip.json` olustur:
 ```json
 {
   "name": "Mobile",
   "channel": "mobile",
-  "members": ["ali", "veli"],
-  "focus": "iOS ve Android gelistirme"
+  "members": ["yeni_ajan"]
 }
 ```
+3. `router.py` KEYWORD_MAP'e ajan anahtar kelimelerini ekle
 
-Sonra `agents/ali.md` ve `agents/veli.md` tanimlarini olusturun.
+---
+
+## Token Karsilastirma
+
+| Senaryo | Geleneksel (tek Claude oturumu) | v2 (bash pipeline) | v3 (smart) |
+|---------|------|------|------|
+| Basit soru | ~2K | ~8K (gereksiz overhead) | ~2K |
+| 5 adimli gorev | ~15K | ~76K (cache yok) | ~23K |
+| 10 adimli proje | ~30K | ~150K+ | ~40K |
+
+v3 avantaji: Basit isler icin tek Claude oturumu kadar verimli, karmasik isler icin paralel calisma + QA kalite kapisi.
 
 ---
 
 ## Guvenlik
 
-- **Dosya yolu dogrulamasi:** `apply_code_changes()` proje kokunden cikmaya izin vermez
-- **Atomik yazma:** Partial read / corrupt JSON onlenir
-- **Env var gecisi:** Shell→Python arasi veri aktariminda string interpolation yerine `os.environ` kullanilir
-- **Lock mekanizmasi:** Seq numarasi ve handoff icin `mkdir` tabanli lock
-- **Pipefail guvenli:** Tum scriptler `set -euo pipefail` altinda test edilmistir
+- **Path traversal koruması**: `apply_code_changes()` dosya yolunu `resolve()` ile kontrol eder, proje kokunden cikamaz
+- **Prompt caching**: Hassas veri cache'te 5dk sonra silinir (Anthropic ephemeral cache)
+- **API key**: Sadece ortam degiskeni uzerinden, koda yazilmaz
 
 ---
 
