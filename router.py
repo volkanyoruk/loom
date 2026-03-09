@@ -48,6 +48,7 @@ KEYWORD_MAP = {
     "zeynep": r"(?i)(ui|ux|design|tasarim|renk|font|layout|responsive|erisile|figma|tema|theme|dark.?mode)",
     "hasan": r"(?i)(api|endpoint|database|veritaban|sql|backend|sunucu|server|auth|redis|graphql)",
     "saki": r"(?i)(component|biles|frontend|react|css|stil|button|form|modal|sayfa|page)",
+    "ahmet": r"(?i)(test|qa|review|kontrol|incele|kalite|quality|guvenlik|security|bug)",
     "huseyin": r"(?i)(deploy|docker|ci|cd|pipeline|nginx|ssl|monitoring|log|sunucu|server.?kur)",
 }
 
