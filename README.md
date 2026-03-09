@@ -4,6 +4,48 @@
 
 Claude instance'lari C+ Protocol ile kanal bazli JSON mesajlasma yapar. Gorev planlama, dagitim, kod yazma, QA testi ve deploy sureci tamamen otomatiktir.
 
+## v3 — Smart Pipeline (Onerilen)
+
+Akilli yonlendirme + prompt caching + paralel calisma. **%70-90 token tasarrufu.**
+
+```bash
+# Kurulum
+pip install -r requirements.txt
+export ANTHROPIC_API_KEY='sk-ant-...'
+
+# Kullanim
+python3 brain.py "Login sayfasi ekle" --project ~/myapp        # Otomatik strateji
+python3 brain.py "Bu fonksiyonu acikla" --agent ece             # Tek ajan
+python3 brain.py "Buyuk refactor" --strategy full               # Tam pipeline
+python3 brain.py --dashboard                                     # Web panel
+```
+
+### Akilli Yonlendirme
+
+| Gorev Tipi | Strateji | Token | Ornek |
+|-----------|----------|-------|-------|
+| Basit soru | SINGLE (1 ajan) | ~2K | "React hook nasil yazilir?" |
+| Orta gorev | PAIR (dev + QA) | ~5K | "Bu fonksiyonu duzelt" |
+| Ekip isi | TEAM (2-3 ajan) | ~12K | "UI tasarimini yenile" |
+| Buyuk proje | FULL (tam pipeline) | ~23K | "Kullanici yonetim sistemi ekle" |
+
+### Token Tasarrufu
+
+- **Prompt caching**: Ajan kisiligi + proje dosyalari cache'lenir → %90 indirim
+- **Multi-turn**: Ayni ajan tekrar cagirildiginda onceki konusma hatirlanir
+- **Akilli yonlendirme**: Basit is icin 8 ajan calistirmaz, 1 yeterli
+- **Paralel calisma**: Bagimsiz gorevler ayni anda calisir
+
+### Web Dashboard
+
+```bash
+python3 brain.py --dashboard           # http://localhost:7777
+python3 brain.py --dashboard --port 8080
+python3 dashboard_v2.py                # Sadece dashboard
+```
+
+WebSocket ile canli akis — gorev gonderme formu, token istatistikleri, pipeline ilerleme.
+
 ---
 
 ## Mimari
@@ -219,11 +261,18 @@ channels/
 
 ```
 youdown-brain/
-├── youdown-brain.sh          # Ana brain — tum modlari yonetir
-├── start_task.sh             # Yeni gorev baslat, eski mesajlari arsivle
-├── run_pipeline.sh           # Tek komutla tam pipeline
-├── dashboard.py              # Web dashboard (http://localhost:7777)
-├── panel.sh                  # tmux ile 3 pencereli panel (alternatif)
+├── brain.py                  # v3 — Ana giris noktasi (onerilen)
+├── engine.py                 # v3 — Anthropic API + prompt caching + session
+├── router.py                 # v3 — Akilli yonlendirme (SINGLE/PAIR/TEAM/FULL)
+├── pipeline.py               # v3 — Paralel pipeline + dev-qa dongusu
+├── dashboard_v2.py           # v3 — WebSocket dashboard
+├── requirements.txt          # Python bagimliliklari
+│
+├── youdown-brain.sh          # v2 — CLI tabanli (eski)
+├── start_task.sh             # v2 — Gorev baslat
+├── run_pipeline.sh           # v2 — Tek komut pipeline
+├── dashboard.py              # v2 — HTTP polling dashboard
+├── panel.sh                  # v2 — tmux panel
 │
 ├── lib/
 │   ├── protocol.sh           # C+ Protocol core (mesaj, seq, turn, heartbeat)
