@@ -124,7 +124,24 @@ Bu komut sirasiyla:
 ./youdown-brain.sh --role ahmet --mode qa --project ~/projects/myapp
 ```
 
-### Panel Gorunumu (tmux)
+### Web Dashboard (onerilen)
+
+```bash
+python3 dashboard.py
+# Tarayicida ac: http://localhost:7777
+```
+
+Canli guncellenen web paneli:
+- Pipeline durumu + ilerleme cubugu
+- Tum kanal mesajlari renkli gorunum
+- Ajan durumlari (canli/cevrimdisi)
+- Handoff ve QA sonuclari
+- QA istatistikleri
+- Ajan loglari
+
+Farkli port kullanmak icin: `python3 dashboard.py 8080`
+
+### Terminal Paneli (tmux — alternatif)
 
 ```bash
 ./panel.sh
@@ -205,7 +222,8 @@ youdown-brain/
 ├── youdown-brain.sh          # Ana brain — tum modlari yonetir
 ├── start_task.sh             # Yeni gorev baslat, eski mesajlari arsivle
 ├── run_pipeline.sh           # Tek komutla tam pipeline
-├── panel.sh                  # tmux ile 3 pencereli panel
+├── dashboard.py              # Web dashboard (http://localhost:7777)
+├── panel.sh                  # tmux ile 3 pencereli panel (alternatif)
 │
 ├── lib/
 │   ├── protocol.sh           # C+ Protocol core (mesaj, seq, turn, heartbeat)
