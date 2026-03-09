@@ -1,838 +1,597 @@
 #!/bin/bash
-# youdown-brain.sh — YouDown AI Brain
-# Kullanım: ./youdown-brain.sh --role ece|ceylin --mode qa|collab|plan
-#           ./youdown-brain.sh --status
+# youdown-brain.sh — Multi-Agent Pipeline System
+# 8 ajan, 4 ekip, kanal bazli haberlesme, Dev↔QA dongusu
+#
+# Kullanim:
+#   ./youdown-brain.sh --role ece --mode pipeline     # Ece: plan olustur
+#   ./youdown-brain.sh --role ceylin --mode pipeline   # Ceylin: dagit ve takip et
+#   ./youdown-brain.sh --role ismail --mode worker      # Worker: gorev yap
+#   ./youdown-brain.sh --role ahmet --mode qa           # QA: test et
+#   ./youdown-brain.sh --status                         # Durum goster
+#   ./youdown-brain.sh --channels                       # Kanal durumu
 
 set -euo pipefail
 
 AGENTS="$(cd "$(dirname "$0")" && pwd)"
+AGENTS_DIR="$AGENTS"
+export AGENTS_DIR
 source "$AGENTS/lib/protocol.sh"
+source "$AGENTS/lib/orchestrator.sh"
+source "$AGENTS/lib/qa_gate.sh"
+source "$AGENTS/lib/handoff.sh"
 
 # === Defaults ===
-MY_ROLE="" MODE="qa" POLL=2 MAX_IDLE=300
+MY_ROLE="" MODE="worker" POLL=3 MAX_IDLE=600
 CONTEXT_SIZE=35000 PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$AGENTS/.." && pwd)}"
 CLAUDE="${CLAUDE_BIN:-$(which claude 2>/dev/null || find "$HOME/.local/bin" "$HOME/.npm-global/bin" /usr/local/bin /opt/homebrew/bin -name claude 2>/dev/null | head -1)}"
 MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"
 STATUS_FILE="$AGENTS/task_status.json"
-BUILD_MAX_RETRY=3
+
+# === Tum roller ===
+ALL_ROLES="ece ceylin ismail zeynep hasan saki ahmet huseyin"
 
 # === Args ===
 SHOW_STATUS=false
+SHOW_CHANNELS=false
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --role)    MY_ROLE="$2"; shift 2 ;;
-        --mode)    MODE="$2"; shift 2 ;;
-        --poll)    POLL="$2"; shift 2 ;;
-        --context) CONTEXT_SIZE="$2"; shift 2 ;;
-        --project) PROJECT_ROOT="$2"; shift 2 ;;
-        --status)  SHOW_STATUS=true; shift ;;
+        --role)     MY_ROLE="$2"; shift 2 ;;
+        --mode)     MODE="$2"; shift 2 ;;
+        --poll)     POLL="$2"; shift 2 ;;
+        --context)  CONTEXT_SIZE="$2"; shift 2 ;;
+        --project)  PROJECT_ROOT="$2"; shift 2 ;;
+        --status)   SHOW_STATUS=true; shift ;;
+        --channels) SHOW_CHANNELS=true; shift ;;
         --help)
-            echo "Kullanım: $0 --role ece|ceylin --mode qa|collab|plan"
-            echo "  qa     : Soru-cevap daemon (ask_mini.sh ile)"
-            echo "  collab : Turn-based işbirliği"
-            echo "  plan   : Görevi analiz et → alt adımlara böl → uygula"
-            echo ""
-            echo "Durum: $0 --status"
+            echo "╔══════════════════════════════════════════╗"
+            echo "║     YOUDOWN BRAIN — Multi-Agent System   ║"
+            echo "╠══════════════════════════════════════════╣"
+            echo "║ Roller:                                  ║"
+            echo "║   ece     : Bas Mimar (plan olusturur)   ║"
+            echo "║   ceylin  : Orkestrator (dagitir)        ║"
+            echo "║   ismail  : Senior Developer             ║"
+            echo "║   zeynep  : UX Architect                 ║"
+            echo "║   hasan   : Backend Architect            ║"
+            echo "║   saki    : Frontend Developer           ║"
+            echo "║   ahmet   : Reality Checker / QA         ║"
+            echo "║   huseyin : DevOps                       ║"
+            echo "╠══════════════════════════════════════════╣"
+            echo "║ Modlar:                                  ║"
+            echo "║   pipeline : Ece/Ceylin pipeline modu    ║"
+            echo "║   worker   : Developer/DevOps is modu    ║"
+            echo "║   qa       : QA test modu                ║"
+            echo "║   collab   : Serbest isbirligi           ║"
+            echo "╠══════════════════════════════════════════╣"
+            echo "║ Durum:                                   ║"
+            echo "║   --status   : Pipeline durumu           ║"
+            echo "║   --channels : Kanal mesaj sayilari      ║"
+            echo "╚══════════════════════════════════════════╝"
             exit 0 ;;
         *) shift ;;
     esac
 done
 
-# --status: rol gerektirmez
+# === Status ===
 if $SHOW_STATUS; then
     if [[ -f "$STATUS_FILE" ]]; then
-        python3 - "$STATUS_FILE" << 'PY'
-import json, sys
-from datetime import datetime
-
-data = json.load(open(sys.argv[1]))
-phase_icons = {"research":"🔍","planning":"📋","implementation":"⚙️",
-               "review":"👁","testing":"🧪","done":"✅","failed":"❌"}
-step_icons = {"pending":"⏳","in_progress":"🔄","done":"✅","failed":"❌","skipped":"⏭"}
-
-print(f"\n{'='*60}")
-print(f"  YOUDOWN BRAIN — GÖREV DURUMU")
-print(f"{'='*60}")
-print(f"  Görev : {data.get('task','—')}")
-phase = data.get('phase','—')
-print(f"  Faz   : {phase_icons.get(phase,'?')} {phase}")
-total = data.get('steps_total',0)
-done  = data.get('steps_done',0)
-bar   = '█' * done + '░' * (total - done) if total > 0 else ''
-pct   = int(done/total*100) if total > 0 else 0
-print(f"  İlerleme: [{bar}] {done}/{total} (%{pct})")
-print(f"{'─'*60}")
-for s in data.get('steps',[]):
-    icon = step_icons.get(s['status'],'?')
-    assignee = f"[{s.get('assignee','?')}]"
-    retry = f" (retry:{s['retry_count']})" if s.get('retry_count',0) > 0 else ""
-    print(f"  {icon} Step {s['id']}: {s['desc']} {assignee}{retry}")
-    if s.get('error_summary'):
-        print(f"       ⚠ {s['error_summary']}")
-blockers = data.get('blockers',[])
-if blockers:
-    print(f"{'─'*60}")
-    print(f"  🚧 Blocker: {', '.join(blockers)}")
-print(f"{'='*60}\n")
-PY
+        pipeline_summary
+        echo ""
+        handoff_history
     else
-        echo "Henüz görev yok. 'start_task.sh' ile başlat."
+        echo "Henuz gorev yok. 'start_task.sh' ile baslat."
     fi
     exit 0
 fi
 
-[[ -z "$MY_ROLE" ]] && echo "Hata: --role gerekli (ece|ceylin) veya --status kullan" && exit 1
-[[ "$MY_ROLE" != "ece" && "$MY_ROLE" != "ceylin" ]] && echo "Hata: role = ece|ceylin" && exit 1
-[[ "$MODE" != "qa" && "$MODE" != "collab" && "$MODE" != "plan" ]] && \
-    echo "Hata: mode = qa|collab|plan" && exit 1
-[[ ! -x "$CLAUDE" ]] && echo "Hata: Claude bulunamadı: $CLAUDE" && exit 1
+# === Channel stats ===
+if $SHOW_CHANNELS; then
+    echo ""
+    echo "KANAL DURUMLARI"
+    echo "─────────────────────"
+    channel_stats
+    echo "─────────────────────"
+    exit 0
+fi
 
-# run_py SCRIPT_HEREDOC_VAR STDIN_DATA [extra args...]
-# pipe+heredoc stdin çakışması çözümü: script temp dosyaya yazılır, data pipe'la verilir
-run_py() {
-    local script_content="$1" stdin_data="$2"; shift 2
-    local tmp; tmp=$(mktemp /tmp/yd_py.XXXXXX.py)
-    printf '%s' "$script_content" > "$tmp"
-    printf '%s' "$stdin_data" | python3 "$tmp" "$@"
-    local ec=$?; rm -f "$tmp"; return $ec
+# === Validasyon ===
+[[ -z "$MY_ROLE" ]] && echo "Hata: --role gerekli. Kullanim: $0 --help" && exit 1
+echo "$ALL_ROLES" | grep -qw "$MY_ROLE" || { echo "Hata: Gecersiz rol '$MY_ROLE'. Gecerli: $ALL_ROLES"; exit 1; }
+[[ ! -x "$CLAUDE" ]] && echo "Hata: Claude bulunamadi: $CLAUDE" && exit 1
+
+# === Kanal tespiti ===
+MY_CHANNEL=$(get_agent_team "$MY_ROLE")
+ACTIVE_CHANNEL="$MY_CHANNEL"
+
+log "$MY_ROLE" "Baslatildi: rol=$MY_ROLE, mod=$MODE, kanal=$MY_CHANNEL"
+
+# === Yardimci: proje dosyalarini oku ===
+read_project_files() {
+    local root="$1" max_chars="${2:-15000}"
+    local output=""
+    local project_type="generic"
+    [ -f "$root/package.json" ] && project_type="react"
+    [ -f "$root/Package.swift" ] && project_type="swift"
+
+    if [ "$project_type" = "react" ]; then
+        for f in $(find "$root/src" -maxdepth 3 -type f \( -name "*.jsx" -o -name "*.js" -o -name "*.tsx" -o -name "*.ts" -o -name "*.css" \) 2>/dev/null | head -20); do
+            local rel=${f#$root/}
+            local content=$(head -100 "$f" 2>/dev/null || true)
+            output+="=== $rel ===
+$content
+
+"
+            [ ${#output} -gt "$max_chars" ] && break
+        done
+    elif [ "$project_type" = "swift" ]; then
+        for f in $(find "$root" -maxdepth 4 -type f -name "*.swift" 2>/dev/null | head -20); do
+            local rel=${f#$root/}
+            local content=$(head -100 "$f" 2>/dev/null || true)
+            output+="=== $rel ===
+$content
+
+"
+            [ ${#output} -gt "$max_chars" ] && break
+        done
+    fi
+    printf '%s' "$output"
+    return 0
 }
 
-PEER_ROLE=$([[ "$MY_ROLE" == "ece" ]] && echo "ceylin" || echo "ece")
-INBOX="$AGENTS/ask_ceylin.txt"
-OUTBOX="$AGENTS/ceylin_reply.txt"
-BUSY="$AGENTS/.ceylin_busy"
-
-# ================================================================
-# === Status Yönetimi ===
-# ================================================================
-init_task_status() {
-    local task="$1"
-    python3 - "$STATUS_FILE" "$task" << 'PY'
-import json, sys, uuid
-from datetime import datetime, timezone
-path, task = sys.argv[1], sys.argv[2]
-data = {
-    "task_id": str(uuid.uuid4())[:8],
-    "task": task,
-    "phase": "planning",
-    "created_at": datetime.now(timezone.utc).isoformat(),
-    "updated_at": datetime.now(timezone.utc).isoformat(),
-    "steps": [],
-    "steps_total": 0,
-    "steps_done": 0,
-    "current_step_id": 0,
-    "blockers": [],
-    "build_history": [],
-    "lessons": []
-}
-json.dump(data, open(path, 'w'), ensure_ascii=False, indent=2)
-print(data["task_id"])
-PY
+# === Dosya agaci ===
+get_file_tree() {
+    local root="$1"
+    if [ -f "$root/package.json" ]; then
+        find "$root/src" -maxdepth 3 -type f 2>/dev/null | head -30 | sed "s|$root/||"
+    elif [ -f "$root/Package.swift" ] && [ -d "$root/Sources" ]; then
+        find "$root/Sources" -maxdepth 3 -type f 2>/dev/null | head -30 | sed "s|$root/||"
+    else
+        find "$root" -maxdepth 2 -type f -not -path '*/\.*' -not -path '*/node_modules/*' 2>/dev/null | head -30 | sed "s|$root/||"
+    fi
+    return 0
 }
 
-update_task_status() {
-    local key="$1" value="$2"
-    [[ ! -f "$STATUS_FILE" ]] && return
-    python3 - "$STATUS_FILE" "$key" "$value" << 'PY'
-import json, sys
-from datetime import datetime, timezone
-path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
-data = json.load(open(path))
-data[key] = value
-data["updated_at"] = datetime.now(timezone.utc).isoformat()
-json.dump(data, open(path,'w'), ensure_ascii=False, indent=2)
-PY
-}
+# ╔══════════════════════════════════════════╗
+# ║           MOD: PIPELINE (Ece)           ║
+# ╚══════════════════════════════════════════╝
+run_pipeline_ece() {
+    log "ECE" "Pipeline modu — plan olusturma basliyor"
 
-save_plan_steps() {
-    # Temp script dosyası + JSON stdin pipe — heredoc/pipe stdin çakışması yok
-    local plan_json="$1"
-    local script; script=$(mktemp)
-    cat > "$script" << 'PY'
-import json, sys
-from datetime import datetime, timezone
+    # Gorev mesajini oku (genel kanaldan veya task_status'tan)
+    local task=""
+    if [ -f "$STATUS_FILE" ]; then
+        task=$(_SF="$STATUS_FILE" python3 -c "import json,os; print(json.load(open(os.environ['_SF'])).get('task',''))" 2>/dev/null || true)
+    fi
+    if [ -z "$task" ]; then
+        local last_file=$(get_last_file "genel")
+        if [ -n "$last_file" ]; then
+            task=$(_LF="$last_file" python3 -c "import json,os; print(json.load(open(os.environ['_LF']))['content'])" 2>/dev/null || true)
+        fi
+    fi
+    [ -z "$task" ] && log "ECE" "Gorev bulunamadi. start_task.sh ile baslat." && return 1
 
-path = sys.argv[1]
-plan = json.load(sys.stdin)
-data = json.load(open(path))
+    # Proje analizi
+    local file_tree=$(get_file_tree "$PROJECT_ROOT")
+    local project_files=$(read_project_files "$PROJECT_ROOT" 10000)
 
-steps = []
-for i, s in enumerate(plan.get("steps", []), 1):
-    steps.append({
-        "id": i,
-        "desc": s.get("desc",""),
-        "assignee": "ceylin",
-        "affected_files": s.get("affected_files", []),
-        "test_plan": s.get("test_plan",""),
-        "status": "pending",
-        "build_result": None,
-        "test_result": None,
-        "retry_count": 0,
-        "error_summary": None
-    })
+    # Plan olustur
+    local plan_prompt="GOREV: $task
 
-data["steps"] = steps
-data["steps_total"] = len(steps)
-data["steps_done"] = 0
-data["current_step_id"] = 1
-data["phase"] = "implementation"
-data["analysis"] = plan.get("analysis","")
-data["acceptance_criteria"] = plan.get("acceptance_criteria",[])
-data["updated_at"] = datetime.now(timezone.utc).isoformat()
-json.dump(data, open(path,'w'), ensure_ascii=False, indent=2)
-print(f"Plan kaydedildi: {len(steps)} adım")
-PY
-    printf '%s' "$plan_json" | python3 "$script" "$STATUS_FILE"
-    rm -f "$script"
-}
-
-update_step_status() {
-    local step_id="$1" status="$2" error_summary="${3:-}"
-    [[ ! -f "$STATUS_FILE" ]] && return
-    python3 - "$STATUS_FILE" "$step_id" "$status" "$error_summary" << 'PY'
-import json, sys
-from datetime import datetime, timezone
-path, sid, status, err = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
-data = json.load(open(path))
-for s in data["steps"]:
-    if s["id"] == sid:
-        s["status"] = status
-        if err:
-            s["error_summary"] = err
-        if status == "done":
-            data["steps_done"] = data.get("steps_done", 0) + 1
-            # Sonraki adıma geç
-            next_id = sid + 1
-            if next_id <= data["steps_total"]:
-                data["current_step_id"] = next_id
-            else:
-                data["phase"] = "done"
-        elif status == "in_progress":
-            data["current_step_id"] = sid
-            data["phase"] = "implementation"
-        break
-data["updated_at"] = datetime.now(timezone.utc).isoformat()
-json.dump(data, open(path,'w'), ensure_ascii=False, indent=2)
-PY
-}
-
-record_build() {
-    local step_id="$1" success="$2" error_type="${3:-}"
-    [[ ! -f "$STATUS_FILE" ]] && return
-    python3 - "$STATUS_FILE" "$step_id" "$success" "$error_type" << 'PY'
-import json, sys
-from datetime import datetime, timezone
-path, sid, ok, etype = sys.argv[1], int(sys.argv[2]), sys.argv[3]=="true", sys.argv[4]
-data = json.load(open(path))
-data.setdefault("build_history",[]).append({
-    "step_id": sid, "success": ok,
-    "error_type": etype,
-    "timestamp": datetime.now(timezone.utc).isoformat()
-})
-json.dump(data, open(path,'w'), ensure_ascii=False, indent=2)
-PY
-}
-
-# ================================================================
-# === System Prompts ===
-# ================================================================
-qa_prompt() {
-    local history="$1" question="$2"
-    cat << EOF
-Sen YouDown projesinin ${MY_ROLE^} Claude'usun (Opus 4.6). Swift 6 + SwiftUI + yt-dlp + ffmpeg.
-Kısa, teknik, Türkçe cevap ver. Kod yazarken tam çalışır Swift 6 yaz.
-
-=== KONUŞMA GEÇMİŞİ ===
-$history
-
-=== SORU ===
-$question
-EOF
-}
-
-discovery_question_prompt() {
-    local task="$1" file_tree="$2"
-    cat << EOF
-Sen deneyimli bir yazılım mimarısısın. Mini (implementer) ile konuşmadan önce görevi analiz edeceksin.
-
-GÖREV: $task
-
-PROJE DOSYA YAPISI:
+PROJE DOSYALARI:
 $file_tree
 
-Mini'ye sormak istediğin 2-3 kritik teknik soruyu belirle. Bunlar Mini'nin projeyi inceleyip
-cevaplayabileceği, planı daha iyi yapmanı sağlayacak sorular olsun.
+MEVCUT KOD:
+$project_files
 
-Sadece şu JSON formatını döndür:
+EKIPLER:
+- Tasarim: Ismail (Senior Dev) + Zeynep (UX Architect) — kanal: tasarim
+- Backend: Hasan (Backend Architect) + Saki (Frontend Dev) — kanal: backend
+- QA/DevOps: Ahmet (Reality Checker) + Huseyin (DevOps) — kanal: qa
+
+TALIMAT: Bu gorevi analiz et ve bir plan olustur. Ciktini SADECE asagidaki JSON formatinda ver, baska bir sey yazma:
+
 {
-  "initial_thoughts": "Görev hakkında ilk teknik değerlendirmen (2-3 cümle)",
-  "questions": [
-    "Soru 1 (net, teknik, spesifik)",
-    "Soru 2",
-    "Soru 3 (opsiyonel)"
-  ]
-}
-EOF
-}
-
-discovery_answer_prompt() {
-    local task="$1" file_tree="$2" questions="$3" existing_code="$4"
-    cat << EOF
-Sen deneyimli bir Swift 6/SwiftUI geliştiricisisin (implementer). Mimar sana bazı sorular sordu.
-Projeyi dikkatlice inceleyerek dürüst, teknik cevaplar ver. Bilmiyorsan "bilmiyorum" de.
-
-GÖREV: $task
-
-PROJE DOSYA YAPISI:
-$file_tree
-
-=== MİMAR'IN SORULARI ===
-$questions
-
-=== MEVCUT PROJE KODU (ilgili dosyalar) ===
-$existing_code
-
-Her soruyu tek tek yanıtla. Kısa ve teknik ol. Türkçe.
-Eğer bir risk veya dikkat edilmesi gereken şey görüyorsan belirt.
-EOF
-}
-
-plan_prompt() {
-    local task="$1" file_tree="$2" mini_insights="$3"
-    cat << EOF
-Sen bir Swift 6/SwiftUI proje mimarısısın. Mini ile yaptığın teknik tartışmayı da göz önünde bulundurarak JSON plan üret.
-
-GÖREV: $task
-
-PROJE DOSYA YAPISI:
-$file_tree
-
-=== MİNİ'NİN TEKNİK GÖRÜŞLERİ ===
-$mini_insights
-
-Sadece aşağıdaki JSON formatını döndür, başka hiçbir şey yazma:
-{
-  "analysis": "Görevin 2-3 cümlelik teknik analizi (Mini'nin girdilerini yansıt)",
-  "acceptance_criteria": ["Kriter 1", "Kriter 2"],
-  "risks": ["Risk 1"],
-  "steps": [
+  \"task\": \"gorev aciklamasi\",
+  \"architecture\": \"teknik mimari ozeti\",
+  \"steps\": [
     {
-      "id": 1,
-      "desc": "Ne yapılacak (tek dosya veya tek mantıksal birim)",
-      "affected_files": ["Sources/Dosya.swift"],
-      "test_plan": "Bu adım nasıl doğrulanır"
+      \"id\": 1,
+      \"desc\": \"adim aciklamasi\",
+      \"assignee\": \"ajan_adi\",
+      \"team\": \"ekip_kanali\",
+      \"depends_on\": [],
+      \"acceptance_criteria\": [\"kriter1\", \"kriter2\"]
     }
   ]
 }
 
 KURALLAR:
-- Her adım tek bir dosya veya tek bir özellik
-- Adımlar bağımlılık sırasıyla: model → service → viewmodel → view
-- Swift 6 strict concurrency uyumlu ol
-- Max 8 adım
-EOF
-}
+- Her adim tek bir ajanin yapabilecegi buyuklukte olsun
+- Bagimliliklari dogru isaretle
+- Kabul kriterlerini net ve test edilebilir yaz
+- assignee: ismail, zeynep, hasan, saki, ahmet, huseyin
+- team: tasarim, backend, qa
+- Paralel calisabilecekleri ayni depends_on ile isaretleme"
 
-collab_prompt() {
-    local context="$1" files="$2" step_info="${3:-}"
-    if [[ "$MY_ROLE" == "ece" ]]; then
-        cat << EOF
-Sen Ece'sin — YouDown projesinin mimar Claude'u (Opus 4.6).
-Ceylin'in kodunu review et, eksikleri tamamla, tüm iş bitince [TAMAMLANDI] yaz. Türkçe.
-$step_info
+    log "ECE" "Plan icin Claude cagriliyor..."
+    local plan_reply=$(call_claude "ece" "$plan_prompt")
 
-=== PROJE DOSYALARI ===
-$files
-
-=== KONUŞMA ===
-$context
-
-Sıra sende:
-EOF
-    else
-        cat << EOF
-Sen Ceylin'sin — projenin uygulayıcı Claude'u (Sonnet 4.6).
-Görevi analiz et, tam çalışır kod yaz, [TAMAMLANDI] ile bitir. Türkçe.
-KOD FORMATI: ### src/dosya/adi.jsx ardından \`\`\`jsx blok \`\`\` (ya da ilgili uzantı)
-$step_info
-
-=== PROJE DOSYALARI ===
-$files
-
-=== KONUŞMA ===
-$context
-
-Sıra sende:
-EOF
-    fi
-}
-
-build_fix_prompt() {
-    local errors="$1" affected_files="$2"
-    cat << EOF
-Sen Ceylin'sin — YouDown projesinin uygulayıcı Claude'u (Opus 4.6).
-Swift build HATALI. Hataları düzelt, sadece değişen dosyaları döndür. Türkçe.
-KOD FORMATI: ### Sources/Dosya.swift ardından \`\`\`swift blok \`\`\`
-
-=== BUILD HATALARI ===
-$errors
-
-=== ETKİLENEN DOSYALAR ===
-$affected_files
-
-Hataları düzelt:
-EOF
-}
-
-# ================================================================
-# === Proje Dosyaları & Build ===
-# ================================================================
-# Proje tipini algıla: react | swift | generic
-detect_project_type() {
-    if [[ -f "$PROJECT_ROOT/package.json" ]]; then
-        echo "react"
-    elif [[ -f "$PROJECT_ROOT/Package.swift" ]]; then
-        echo "swift"
-    else
-        echo "generic"
-    fi
-}
-
-get_file_tree() {
-    local ptype; ptype=$(detect_project_type)
-    case "$ptype" in
-        react)
-            find "$PROJECT_ROOT/src" \( -name "*.jsx" -o -name "*.js" -o -name "*.css" -o -name "*.tsx" -o -name "*.ts" \) 2>/dev/null | \
-                sed "s|$PROJECT_ROOT/||" | sort
-            ;;
-        swift)
-            find "$PROJECT_ROOT/Sources" -name "*.swift" 2>/dev/null | \
-                sed "s|$PROJECT_ROOT/||" | sort
-            ;;
-        *)
-            find "$PROJECT_ROOT" -maxdepth 3 \( -name "*.js" -o -name "*.py" -o -name "*.go" \) 2>/dev/null | \
-                sed "s|$PROJECT_ROOT/||" | sort | head -30
-            ;;
-    esac
-}
-
-read_project_files() {
-    local ptype; ptype=$(detect_project_type)
-
-    if [[ "$ptype" == "react" ]]; then
-        find "$PROJECT_ROOT/src" \( -name "*.jsx" -o -name "*.js" -o -name "*.css" -o -name "*.tsx" -o -name "*.ts" \) 2>/dev/null | sort | while IFS= read -r path; do
-            [[ -f "$path" ]] && printf '### %s\n```jsx\n%s\n```\n\n' "${path#$PROJECT_ROOT/}" "$(cat "$path")"
-        done
-    elif [[ "$ptype" == "swift" ]]; then
-        find "$PROJECT_ROOT/Sources" -name "*.swift" 2>/dev/null | sort | while IFS= read -r path; do
-            [[ -f "$path" ]] && printf '### %s\n```swift\n%s\n```\n\n' "${path#$PROJECT_ROOT/}" "$(cat "$path")"
-        done
+    if [ -z "$plan_reply" ]; then
+        log "ECE" "HATA: Plan olusturulamadi"
+        return 1
     fi
 
-    # Config dosyaları
-    for cfg in package.json vite.config.js vite.config.ts Package.swift; do
-        [[ -f "$PROJECT_ROOT/$cfg" ]] && printf '### %s\n```\n%s\n```\n\n' "$cfg" "$(cat "$PROJECT_ROOT/$cfg")" || true
+    # JSON'u cikart (bazen markdown code block icinde geliyor)
+    local plan_json=$(echo "$plan_reply" | python3 -c "
+import sys, json, re
+text = sys.stdin.read()
+# Markdown code block icindeyse cikar
+match = re.search(r'\`\`\`(?:json)?\s*(\{.*?\})\s*\`\`\`', text, re.DOTALL)
+if match:
+    text = match.group(1)
+else:
+    # Ilk { ile son } arasini al
+    start = text.find('{')
+    end = text.rfind('}')
+    if start >= 0 and end > start:
+        text = text[start:end+1]
+# Validate
+try:
+    data = json.loads(text)
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+except:
+    print(text)
+" 2>/dev/null)
+
+    # Pipeline'i baslat
+    init_pipeline "$plan_json"
+    log "ECE" "Plan olusturuldu ve pipeline baslatildi"
+
+    # Plani genel kanala gonder (Ceylin okusun)
+    send_msg "ece" "PLAN HAZIR. Pipeline baslatildi. Plan:
+$plan_json" "genel"
+
+    pipeline_summary
+}
+
+# ╔══════════════════════════════════════════╗
+# ║        MOD: PIPELINE (Ceylin)           ║
+# ╚══════════════════════════════════════════╝
+run_pipeline_ceylin() {
+    log "CEYLİN" "Orkestrasyon modu — gorev dagitimi basliyor"
+
+    [ ! -f "$STATUS_FILE" ] && log "CEYLİN" "task_status.json yok. Ece henuz plan olusturmamis." && return 1
+
+    local phase=$(_SF="$STATUS_FILE" python3 -c "import json,os; print(json.load(open(os.environ['_SF'])).get('phase',''))" 2>/dev/null)
+    [ "$phase" = "done" ] && log "CEYLİN" "Pipeline tamamlanmis!" && pipeline_summary && return 0
+
+    # Gorev dagitim dongusu
+    while true; do
+        local next_task=$(get_next_task)
+
+        if [ "$next_task" = "NONE" ]; then
+            # Devam eden gorev var mi kontrol et
+            local in_progress=$(_SF="$STATUS_FILE" python3 -c "
+import json, os
+data = json.load(open(os.environ['_SF']))
+active = [s for s in data['steps'] if s['status'] == 'in_progress']
+print(len(active))
+" 2>/dev/null)
+
+            if [ "$in_progress" = "0" ]; then
+                # Tum adimlar tamamlandi veya basarisiz
+                local done_count=$(_SF="$STATUS_FILE" python3 -c "import json,os; data=json.load(open(os.environ['_SF'])); print(data['steps_done'])" 2>/dev/null)
+                local total_count=$(_SF="$STATUS_FILE" python3 -c "import json,os; data=json.load(open(os.environ['_SF'])); print(data['steps_total'])" 2>/dev/null)
+
+                if [ "$done_count" = "$total_count" ]; then
+                    log "CEYLİN" "TUM GOREVLER TAMAMLANDI!"
+                    update_pipeline_status "phase" "done"
+                    pipeline_summary
+                    send_msg "ceylin" "PIPELINE TAMAMLANDI! Tum gorevler basariyla tamamlandi." "genel"
+                    return 0
+                else
+                    log "CEYLİN" "Bazi gorevler basarisiz. Ece'ye eskalasyon gerekli."
+                    pipeline_summary
+                    return 1
+                fi
+            fi
+
+            log "CEYLİN" "Gorev bekleniyor... (aktif: $in_progress)"
+            sleep "$POLL"
+            continue
+        fi
+
+        # Gorevi ata
+        assign_task "$next_task"
+
+        local task_id=$(echo "$next_task" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+        local assignee=$(echo "$next_task" | python3 -c "import json,sys; print(json.load(sys.stdin)['assignee'])")
+        local team=$(echo "$next_task" | python3 -c "import json,sys; print(json.load(sys.stdin)['team'])")
+        local desc=$(echo "$next_task" | python3 -c "import json,sys; print(json.load(sys.stdin)['desc'])")
+        local criteria=$(echo "$next_task" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('acceptance_criteria',[])))")
+
+        # Worker'i calistir (ayni process icinde)
+        log "CEYLİN" "Worker baslatiliyor: $assignee (gorev #$task_id)"
+        run_worker_task "$assignee" "$task_id" "$desc" "$criteria" "$team"
+
+        # QA'ya gonder
+        local worker_output=$(get_context 5000 "$team" | tail -20)
+        log "CEYLİN" "Gorev #$task_id QA'ya gonderiliyor..."
+
+        local qa_result=$(run_qa_check "$task_id" "$PROJECT_ROOT")
+        local verdict=$(echo "$qa_result" | head -1)
+        local qa_details=$(echo "$qa_result" | sed '1,/---QA_DETAILS---/d')
+
+        process_qa_result "$task_id" "$verdict" "$qa_details"
+        local qa_exit=$?
+
+        if [ $qa_exit -eq 1 ]; then
+            # FAIL — retry gerekli, tekrar worker calistir
+            log "CEYLİN" "Gorev #$task_id QA basarisiz, retry..."
+            # Retry dongusu
+            local max_retry=2  # 2 ek deneme (toplam 3)
+            for retry_i in $(seq 1 $max_retry); do
+                run_worker_task "$assignee" "$task_id" "$desc (DUZELTME: $qa_details)" "$criteria" "$team"
+                qa_result=$(run_qa_check "$task_id" "$PROJECT_ROOT")
+                verdict=$(echo "$qa_result" | head -1)
+                qa_details=$(echo "$qa_result" | sed '1,/---QA_DETAILS---/d')
+                process_qa_result "$task_id" "$verdict" "$qa_details"
+                qa_exit=$?
+                [ $qa_exit -eq 0 ] && break  # PASS
+                [ $qa_exit -eq 2 ] && break  # Escalation
+            done
+        fi
+
+        pipeline_summary
+        sleep 1
     done
+}
+
+# ╔══════════════════════════════════════════╗
+# ║           MOD: WORKER                    ║
+# ╚══════════════════════════════════════════╝
+run_worker_task() {
+    local worker_role="$1" task_id="$2" task_desc="$3" criteria="$4" team="$5"
+
+    log "$worker_role" "Gorev #$task_id basliyor: $task_desc"
+
+    # Proje dosyalarini oku
+    local project_files=$(read_project_files "$PROJECT_ROOT" 10000)
+    local file_tree=$(get_file_tree "$PROJECT_ROOT")
+
+    # Worker'a prompt hazirla
+    local worker_prompt="GOREV #$task_id: $task_desc
+
+KABUL KRITERLERI: $criteria
+
+PROJE KLASORU: $PROJECT_ROOT
+PROJE DOSYA AGACI:
+$file_tree
+
+MEVCUT KOD:
+$project_files
+
+TALIMAT: Bu gorevi tamamla. Kod degisiklikleri gerekiyorsa, her dosya icin asagidaki formati kullan:
+
+===FILE: dosya/yolu===
+dosya icerigi buraya
+===END===
+
+KURALLAR:
+- Sadece verilen gorevi yap, ekstra ozellik ekleme
+- Tum kabul kriterlerini karsilaadindan emin ol
+- Guvenlik acigi birakma
+- Build kirilmasin"
+
+    # Claude'u cagir
+    local reply=$(call_claude "$worker_role" "$worker_prompt")
+
+    if [ -z "$reply" ]; then
+        log "$worker_role" "HATA: Claude cevap vermedi"
+        send_msg "$worker_role" "HATA: Gorev #$task_id icin cevap alinamadi" "$team"
+        return 1
+    fi
+
+    # Dosya ciktilarini uygula
+    apply_code_changes "$reply" "$PROJECT_ROOT"
+
+    # Sonucu kanala bildir
+    send_msg "$worker_role" "TAMAMLANDI: Gorev #$task_id
+$reply" "$team"
+
+    log "$worker_role" "Gorev #$task_id tamamlandi"
     return 0
 }
 
-read_affected_files() {
-    local file_list="$1"
-    local ptype; ptype=$(detect_project_type)
-    local lang; [[ "$ptype" == "react" ]] && lang="jsx" || lang="swift"
-    printf '%s' "$file_list" | while IFS= read -r f; do
-        [[ -z "$f" ]] && continue
-        local full="$PROJECT_ROOT/$f"
-        [[ -f "$full" ]] && printf '### %s\n```%s\n%s\n```\n\n' "$f" "$lang" "$(cat "$full")"
-    done
-    return 0
-}
+# === Kod degisikliklerini uygula ===
+apply_code_changes() {
+    local reply="$1" root="$2"
 
-_APPLY_CODE_PY='
-import sys, re, os
-content = sys.stdin.read()
-root = os.path.realpath(os.environ["PROJECT_ROOT"])
-# Hem Sources/*.swift hem src/*.jsx formatını destekle
-for path, code in re.findall(r"###\s+([^\n]+\.(swift|jsx|js|tsx|ts|css))\n```[^\n]*\n(.*?)```", content, re.DOTALL):
-    full = os.path.realpath(os.path.join(root, path.strip()))
-    if not full.startswith(root + os.sep):
-        print("SKIP (path traversal): " + path.strip())
+    export _PROJECT_ROOT="$root"
+    echo "$reply" | python3 -c "
+import sys, os, re
+
+text = sys.stdin.read()
+root = os.path.realpath(os.environ['_PROJECT_ROOT'])
+
+# ===FILE: path=== ... ===END=== bloklarini bul
+pattern = r'===FILE:\s*(.+?)===\s*\n(.*?)===END==='
+matches = re.findall(pattern, text, re.DOTALL)
+
+for filepath, content in matches:
+    filepath = filepath.strip()
+    # Goreli yolu mutlak yap
+    if not filepath.startswith('/'):
+        full_path = os.path.join(root, filepath)
+    else:
+        full_path = filepath
+
+    # GUVENLIK: path proje kokunun disina cikamasin
+    full_path = os.path.realpath(full_path)
+    if not full_path.startswith(root + '/') and full_path != root:
+        print(f'  REDDEDILDI (proje disi): {filepath}')
         continue
-    os.makedirs(os.path.dirname(full), exist_ok=True)
-    open(full, "w").write(code)
-    print("WROTE: " + path.strip())
-'
-apply_code() {
-    PROJECT_ROOT="$PROJECT_ROOT" run_py "$_APPLY_CODE_PY" "$1"
+
+    # Klasoru olustur
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+    # Dosyayi yaz
+    with open(full_path, 'w') as f:
+        f.write(content.strip() + '\n')
+    print(f'  Yazildi: {filepath}')
+" 2>/dev/null || true
 }
 
-# Build + hata parse
-run_build_with_feedback() {
-    local out ec=0
-    local ptype; ptype=$(detect_project_type)
-
-    case "$ptype" in
-        react) out=$(cd "$PROJECT_ROOT" && npm run build 2>&1) || ec=$? ;;
-        swift) out=$(cd "$PROJECT_ROOT" && swift build 2>&1) || ec=$? ;;
-        *)     ec=0; out="BUILD_SUCCESS" ;;
-    esac
-
-    if [[ $ec -eq 0 ]]; then
-        printf 'BUILD_SUCCESS\n'
-        return 0
-    fi
-
-    printf 'BUILD_FAILED\n'
-    printf 'ERROR_COUNT:?\n'
-    printf '---RAW_TAIL---\n'
-    printf '%s' "$out" | tail -30
-    return 1
-}
-
-
-# ================================================================
-# === QA Modu ===
-# ================================================================
-run_qa() {
-    log "$MY_ROLE" "=== QA Modu başladı | $MODEL ==="
-    log "$MY_ROLE" "Inbox: $INBOX | Dinleniyor..."
-
-    > "$INBOX" 2>/dev/null || true; rm -f "$OUTBOX" "$BUSY"
-    local last_checksum="" q_count=0
+# ╔══════════════════════════════════════════╗
+# ║         MOD: WORKER DAEMON               ║
+# ╚══════════════════════════════════════════╝
+run_worker_daemon() {
+    log "$MY_ROLE" "Worker daemon baslatildi — kanal: $MY_CHANNEL"
 
     while true; do
         touch_heartbeat "$MY_ROLE"
-        local question
-        question=$(cat "$INBOX" 2>/dev/null | tr -d '\0')
-        [[ -z "$question" ]] && { sleep "$POLL"; continue; }
 
-        local checksum
-        checksum=$(printf '%s' "$question" | cksum | cut -d' ' -f1)
-        [[ "$checksum" == "$last_checksum" ]] && { sleep "$POLL"; continue; }
-        last_checksum="$checksum"
-        q_count=$((q_count + 1))
+        # Kanalda yeni handoff var mi?
+        if is_my_turn "$MY_ROLE" "$MY_CHANNEL"; then
+            local last_file=$(get_last_file "$MY_CHANNEL")
+            if [ -n "$last_file" ]; then
+                local content=$(_LF="$last_file" python3 -c "import json,os; print(json.load(open(os.environ['_LF']))['content'])" 2>/dev/null || true)
 
-        > "$INBOX"; touch "$BUSY"
-        last_checksum=""
-        log "$MY_ROLE" "Soru #$q_count: ${question:0:80}..."
+                # HANDOFF mesaji mi?
+                if echo "$content" | grep -q "HANDOFF"; then
+                    log "$MY_ROLE" "Yeni gorev alindi"
 
-        send_msg "ece_qa" "$question"
-        local history
-        history=$(get_context $((CONTEXT_SIZE / 2)))
+                    local task_desc="$content"
+                    local criteria="[]"
 
-        local reply
-        if reply=$(call_claude "$MY_ROLE" "$(qa_prompt "$history" "$question")"); then
-            write_atomic "$OUTBOX" "$reply"
-            send_msg "$MY_ROLE" "$reply"
-            log "$MY_ROLE" "Cevap gönderildi (${#reply} chars)"
-        else
-            write_atomic "$OUTBOX" "[Hata: Claude cevap üretemedi]"
-            log "$MY_ROLE" "WARN: Boş cevap"
-        fi
-        rm -f "$BUSY"
-    done
-}
-
-# ================================================================
-# === Collab Modu ===
-# ================================================================
-run_collab() {
-    log "$MY_ROLE" "=== Collab Modu | $MODEL ==="
-    local idle=0 step_info="${1:-}"
-
-    while true; do
-        touch_heartbeat "$MY_ROLE"
-        check_conflicts || { sleep 10; continue; }
-        check_seq_integrity || true
-
-        if ! is_my_turn "$MY_ROLE"; then
-            idle=$((idle + 1))
-            [[ $idle -ge $MAX_IDLE ]] && { log "$MY_ROLE" "TIMEOUT"; break; }
-            [[ $((idle % 10)) -eq 0 ]] && { check_peer_alive "$PEER_ROLE" 180 || true; }
-            sleep "$POLL"; continue
+                    # Context'ten gorev bilgisini cikar
+                    run_worker_task "$MY_ROLE" "0" "$task_desc" "$criteria" "$MY_CHANNEL"
+                fi
+            fi
         fi
 
-        idle=0
-        local seq context files=""
-        seq=$(get_last_seq)
-        context=$(get_context "$CONTEXT_SIZE")
-        [[ $seq -le 4 ]] && files=$(read_project_files)
-
-        local reply
-        reply=$(call_claude "$MY_ROLE" "$(collab_prompt "$context" "$files" "$step_info")") || \
-            { log "$MY_ROLE" "Claude hata."; break; }
-
-        printf '%s' "$reply" | grep -q '```swift' && {
-            apply_code "$reply" | while read -r l; do log "$MY_ROLE" "  $l"; done
-        }
-
-        send_msg "$MY_ROLE" "$reply"
-        log "$MY_ROLE" "Mesaj (${#reply} chars)"
-
-        printf '%s' "$reply" | grep -q '\[TAMAMLANDI\]' && { log "$MY_ROLE" "TAMAMLANDI!"; break; }
         sleep "$POLL"
     done
 }
 
-# ================================================================
-# === Plan Modu — Sadece main, Mini'ye QA üzerinden kod yazdırır ===
-# ================================================================
+# ╔══════════════════════════════════════════╗
+# ║           MOD: QA DAEMON                 ║
+# ╚══════════════════════════════════════════╝
+run_qa_daemon() {
+    log "AHMET" "QA daemon baslatildi — qa kanalini dinliyor"
 
-# Mini'ye kod görevi gönder, cevabı al (QA inbox/outbox)
-ask_mini_for_code() {
-    local prompt="$1" code_timeout="${2:-300}"
-    rm -f "$OUTBOX"
-    printf '%s' "$prompt" > "$INBOX"
-    log "$MY_ROLE" "Mini'ye kod görevi gönderildi..."
+    while true; do
+        touch_heartbeat "ahmet"
 
-    local waited=0
-    while [[ $waited -lt $code_timeout ]]; do
-        if [[ -f "$OUTBOX" ]] && [[ ! -f "$BUSY" ]]; then
-            cat "$OUTBOX"; rm -f "$OUTBOX"; return 0
-        fi
-        sleep 3; waited=$((waited + 3))
-        [[ $((waited % 30)) -eq 0 ]] && log "$MY_ROLE" "Mini bekliyor... (${waited}s/${code_timeout}s)"
-    done
-    log "$MY_ROLE" "TIMEOUT: Mini ${code_timeout}s içinde cevap vermedi"
-    return 1
-}
+        if is_my_turn "ahmet" "qa"; then
+            local last_file=$(get_last_file "qa")
+            if [ -n "$last_file" ]; then
+                local content=$(_LF="$last_file" python3 -c "import json,os; print(json.load(open(os.environ['_LF']))['content'])" 2>/dev/null || true)
 
-# Adım için kod yazma prompt'u
-step_code_prompt() {
-    local step_id="$1" step_desc="$2" step_files="$3" existing_code="$4"
-    cat << EOF
-Sen Ceylin'sin — projenin uygulayıcı Claude'u (Sonnet 4.6).
-Aşağıdaki adımı tam olarak uygula. Çalışır kod yaz. Türkçe yorum yeterli.
-KOD FORMATI: ### src/dosya/adi.jsx ardından \`\`\`jsx ... \`\`\` (ya da ilgili uzantı)
-Sadece değişen dosyaları yaz. Sonunda [TAMAMLANDI] ekle.
+                if echo "$content" | grep -q "QA TALEBI"; then
+                    log "AHMET" "Yeni QA talebi alindi"
 
-=== ADIM $step_id ===
-$step_desc
+                    # task_id'yi cikar
+                    local task_id=$(echo "$content" | grep -o '#[0-9]*' | head -1 | tr -d '#')
+                    [ -z "$task_id" ] && task_id=0
 
-=== ETKİLENEN DOSYALAR (mevcut içerik) ===
-$existing_code
-EOF
-}
+                    local qa_result=$(run_qa_check "$task_id" "$PROJECT_ROOT")
+                    local verdict=$(echo "$qa_result" | head -1)
+                    local qa_details=$(echo "$qa_result" | sed '1,/---QA_DETAILS---/d')
 
-run_plan() {
-    [[ "$MY_ROLE" != "ece" ]] && {
-        log "$MY_ROLE" "Plan modu sadece Ece rolünde çalışır."; exit 1
-    }
-
-    # Görev al
-    local task=""
-    [[ -f "$STATUS_FILE" ]] && task=$(python3 -c \
-        "import json; print(json.load(open('$STATUS_FILE')).get('task',''))" 2>/dev/null)
-    [[ -z "$task" ]] && {
-        log "$MY_ROLE" "Görev bulunamadı. Önce: ./start_task.sh \"Görev\""; exit 1
-    }
-
-    log "$MY_ROLE" "=== Plan Modu | Görev: ${task:0:60}... ==="
-    local tid; tid=$(init_task_status "$task")
-    log "$MY_ROLE" "Task ID: $tid"
-    update_task_status "phase" "planning"
-
-    # ── Faz 0: Keşif — Main soru sorar, Mini projeyi inceleyerek cevaplar ──
-    log "$MY_ROLE" "🔍 Keşif fazı başlıyor..."
-    local file_tree; file_tree=$(get_file_tree) || true
-    local existing_code; existing_code=$(read_project_files) || true
-
-    # Main soruları oluşturur
-    local discovery_reply
-    discovery_reply=$(call_claude "$MY_ROLE" "$(discovery_question_prompt "$task" "$file_tree")")
-
-    local questions
-    questions=$(run_py '
-import sys, json
-text = sys.stdin.read()
-start = text.find("{")
-if start == -1:
-    print("(soru oluşturulamadı)")
-else:
-    try:
-        parsed, _ = json.JSONDecoder().raw_decode(text[start:])
-        print("Başlangıç değerlendirmesi: " + parsed.get("initial_thoughts",""))
-        print("")
-        for i, q in enumerate(parsed.get("questions",[]), 1):
-            print(str(i) + ". " + q)
-    except:
-        print(text[:500])
-' "$discovery_reply")
-
-    log "$MY_ROLE" "Mimar soruları:"$'\n'"$questions"
-
-    # Mini projeyi inceleyerek cevaplar
-    log "$MY_ROLE" "Mini'ye keşif soruları gönderiliyor..."
-    local mini_insights
-    mini_insights=$(ask_mini_for_code \
-        "$(discovery_answer_prompt "$task" "$file_tree" "$questions" "$existing_code")" 300) || {
-        log "$MY_ROLE" "Mini keşif fazında cevap vermedi, direkt plana geçiliyor."
-        mini_insights="(keşif fazı atlandı)"
-    }
-
-    log "$MY_ROLE" "Mini'nin görüşleri alındı (${#mini_insights} chars)"
-    send_msg "$MY_ROLE" "=== KEŞİF FAZII ===
-
-**MİMAR SORULARI:**
-$questions
-
-**MİNİ CEVAPLARI:**
-$mini_insights"
-
-    # ── Faz 1: Plan oluştur (Mini'nin görüşleriyle) ──
-    log "$MY_ROLE" "📋 Plan oluşturuluyor (Mini'nin girdileriyle)..."
-    local plan_reply; plan_reply=$(call_claude "$MY_ROLE" "$(plan_prompt "$task" "$file_tree" "$mini_insights")")
-
-    # JSON parse
-    local plan_json
-    plan_json=$(run_py '
-import sys, json
-text = sys.stdin.read()
-start = text.find("{")
-if start == -1:
-    print("PARSE_ERROR: JSON bulunamadi", file=sys.stderr); sys.exit(1)
-try:
-    # raw_decode: ilk tam JSON objesini alır, sonrasını yok sayar
-    parsed, _ = json.JSONDecoder().raw_decode(text[start:])
-    print(json.dumps(parsed, ensure_ascii=False))
-except Exception as e:
-    print("PARSE_ERROR:" + str(e), file=sys.stderr); sys.exit(1)
-' "$plan_reply") || { log "$MY_ROLE" "HATA: Plan JSON parse edilemedi: ${plan_reply:0:200}"; exit 1; }
-
-    save_plan_steps "$plan_json"
-    log "$MY_ROLE" "Plan kaydedildi."
-
-    # Planı ekrana yaz — STATUS_FILE env var, f-string yok
-    STATUS_FILE="$STATUS_FILE" python3 << 'PY'
-import json, os
-data = json.load(open(os.environ['STATUS_FILE']))
-print("")
-print("=" * 60)
-print("  PLAN HAZIRLANDI")
-print("=" * 60)
-print("  Analiz  :", data.get('analysis',''))
-print("  Kriterler:", ', '.join(data.get('acceptance_criteria',[])))
-print("")
-print("  Adimlar (" + str(data['steps_total']) + "):")
-for s in data['steps']:
-    files = ', '.join(s.get('affected_files',[]))
-    print("  " + str(s['id']) + ". " + s['desc'])
-    print("     Dosyalar: " + files)
-print("=" * 60)
-print("")
-PY
-
-    # Faz 2: Her adım için Mini'ye QA ile kod yazdır
-    update_task_status "phase" "implementation"
-    local steps_total
-    steps_total=$(python3 -c \
-        "import json; print(json.load(open('$STATUS_FILE'))['steps_total'])" 2>/dev/null)
-
-    for step_id in $(seq 1 "$steps_total"); do
-        # Adım bilgilerini oku
-        local step_desc step_files
-        read step_desc step_files <<< "$(python3 - "$STATUS_FILE" "$step_id" << 'PY'
-import json, sys
-data = json.load(open(sys.argv[1]))
-sid = int(sys.argv[2])
-for s in data['steps']:
-    if s['id'] == sid:
-        print(s['desc'])
-        print('\n'.join(s.get('affected_files',[])))
-        break
-PY
-)"
-        # Etkilenen dosyaların içeriğini oku
-        local existing_code
-        existing_code=$(STATUS_FILE="$STATUS_FILE" STEP_ID="$step_id" \
-            PROJECT_ROOT="$PROJECT_ROOT" python3 << 'PY'
-import json, os
-data = json.load(open(os.environ['STATUS_FILE']))
-root = os.environ['PROJECT_ROOT']
-sid = int(os.environ['STEP_ID'])
-for s in data['steps']:
-    if s['id'] == sid:
-        for f in s.get('affected_files',[]):
-            full = os.path.join(root, f)
-            if os.path.isfile(full):
-                print("### " + f)
-                print("```swift")
-                print(open(full).read())
-                print("```")
-                print("")
-        break
-PY
-)
-
-        log "$MY_ROLE" "▶ Adım $step_id/$steps_total: ${step_desc:0:70}"
-        update_step_status "$step_id" "in_progress"
-
-        # Build + fix retry döngüsü
-        local build_ok=false
-        for attempt in $(seq 1 $BUILD_MAX_RETRY); do
-            log "$MY_ROLE" "  Mini'ye kod görevi gönderiliyor (deneme $attempt)..."
-
-            local code_reply
-            if ! code_reply=$(ask_mini_for_code \
-                "$(step_code_prompt "$step_id" "$step_desc" "$step_files" "$existing_code")" 300); then
-                log "$MY_ROLE" "  Mini cevap vermedi, atlanıyor."
-                break
-            fi
-
-            # Kod uygula
-            printf '%s' "$code_reply" | grep -q '```swift' && {
-                apply_code "$code_reply" | while read -r l; do log "$MY_ROLE" "    $l"; done
-            }
-
-            # Build
-            log "$MY_ROLE" "  Build alınıyor..."
-            local bout; bout=$(run_build_with_feedback) || true
-            local bstatus; bstatus=$(printf '%s' "$bout" | head -1)
-
-            if [[ "$bstatus" == "BUILD_SUCCESS" ]]; then
-                record_build "$step_id" "true" ""
-                build_ok=true
-                log "$MY_ROLE" "  ✅ Build başarılı"
-                break
-            else
-                local err_summary; err_summary=$(printf '%s' "$bout" | grep "^\[" | head -5 | tr '\n' ' ')
-                record_build "$step_id" "false" "$err_summary"
-                log "$MY_ROLE" "  ❌ Build hatalı (deneme $attempt): ${err_summary:0:100}"
-
-                if [[ $attempt -lt $BUILD_MAX_RETRY ]]; then
-                    # Hata feedback ile existing_code güncelle
-                    existing_code=$(printf '%s' "$bout" | tail -n +2 | head -50)
+                    send_msg "ahmet" "QA SONUCU: Gorev #$task_id → $verdict
+$qa_details" "qa"
                 fi
             fi
-        done
-
-        if $build_ok; then
-            update_step_status "$step_id" "done"
-            log "$MY_ROLE" "✅ Adım $step_id tamamlandı"
-        else
-            update_step_status "$step_id" "failed" "Build $BUILD_MAX_RETRY denemede düzeltilemedi"
-            log "$MY_ROLE" "❌ Adım $step_id başarısız — sonraki adıma geçiliyor"
         fi
 
-        "$0" --status 2>/dev/null || true
+        sleep "$POLL"
     done
-
-    update_task_status "phase" "done"
-    log "$MY_ROLE" "=== Plan modu tamamlandı ==="
-    "$0" --status
 }
 
-# ================================================================
-# === Signal & Başlangıç ===
-# ================================================================
-trap 'log "$MY_ROLE" "Durduruluyor..."; exit 0' SIGINT SIGTERM
+# ╔══════════════════════════════════════════╗
+# ║           MOD: COLLAB                    ║
+# ╚══════════════════════════════════════════╝
+run_collab() {
+    log "$MY_ROLE" "Collab modu — kanal: $MY_CHANNEL"
 
-log "$MY_ROLE" "=== YouDown Brain v3 | role=$MY_ROLE mode=$MODE model=$MODEL ==="
+    local idle=0
+    while true; do
+        touch_heartbeat "$MY_ROLE"
+
+        if is_my_turn "$MY_ROLE" "$MY_CHANNEL"; then
+            idle=0
+            local context=$(get_context "$CONTEXT_SIZE" "$MY_CHANNEL")
+            local project_files=$(read_project_files "$PROJECT_ROOT" 10000)
+
+            local prompt="KONUSMA GECMISI:
+$context
+
+PROJE DOSYALARI:
+$project_files
+
+Cevabini yaz. Kod degisikligi gerekiyorsa ===FILE: yol=== formatini kullan."
+
+            local reply=$(call_claude "$MY_ROLE" "$prompt")
+
+            if [ -n "$reply" ]; then
+                apply_code_changes "$reply" "$PROJECT_ROOT"
+                send_msg "$MY_ROLE" "$reply" "$MY_CHANNEL"
+            fi
+        else
+            idle=$((idle + POLL))
+            [ $idle -ge $MAX_IDLE ] && log "$MY_ROLE" "Max idle asildi, cikiliyor." && break
+        fi
+
+        sleep "$POLL"
+    done
+}
+
+# ╔══════════════════════════════════════════╗
+# ║              ANA CALISTIRICI             ║
+# ╚══════════════════════════════════════════╝
+
+echo ""
+echo "╔══════════════════════════════════════════╗"
+echo "║     YOUDOWN BRAIN — Multi-Agent v2       ║"
+echo "╠══════════════════════════════════════════╣"
+echo "  Rol    : $MY_ROLE"
+echo "  Mod    : $MODE"
+echo "  Kanal  : $MY_CHANNEL"
+echo "  Proje  : $PROJECT_ROOT"
+echo "  Model  : $MODEL"
+echo "╚══════════════════════════════════════════╝"
+echo ""
 
 case "$MODE" in
-    qa)     run_qa ;;
-    collab) run_collab ;;
-    plan)   run_plan ;;
+    pipeline)
+        if [ "$MY_ROLE" = "ece" ]; then
+            run_pipeline_ece
+        elif [ "$MY_ROLE" = "ceylin" ]; then
+            run_pipeline_ceylin
+        else
+            echo "Hata: pipeline modu sadece ece ve ceylin icin."
+            exit 1
+        fi
+        ;;
+    worker)
+        if [ "$MY_ROLE" = "ahmet" ]; then
+            echo "Ahmet icin --mode qa kullanin."
+            exit 1
+        fi
+        run_worker_daemon
+        ;;
+    qa)
+        if [ "$MY_ROLE" != "ahmet" ]; then
+            echo "QA modu sadece ahmet icin."
+            exit 1
+        fi
+        run_qa_daemon
+        ;;
+    collab)
+        run_collab
+        ;;
+    *)
+        echo "Hata: Gecersiz mod '$MODE'. Gecerli: pipeline, worker, qa, collab"
+        exit 1
+        ;;
 esac
-
-log "$MY_ROLE" "=== Durdu ==="

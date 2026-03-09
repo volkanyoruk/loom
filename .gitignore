@@ -1,7 +1,10 @@
 # Runtime dosyaları
 messages/
+channels/
+handoffs/
 logs/
 archive/
+task_status.json
 
 # Geçici
 *.txt

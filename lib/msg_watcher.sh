@@ -6,7 +6,7 @@ show_msgs() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  MESAJLAR  ($(date '+%H:%M:%S'))"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    for f in $(ls -1 "$MESSAGES_DIR"/*.json 2>/dev/null | sort -t'_' -k1 -n | tail -15); do
+    for f in $(find "$MESSAGES_DIR" -maxdepth 1 -name "*.json" -print 2>/dev/null | sort -t'_' -k1 -n | tail -15); do
         from=$(python3 -c "import json; d=json.load(open('$f')); print(d['from'])" 2>/dev/null)
         content=$(python3 -c "import json; d=json.load(open('$f')); print(d['content'][:100])" 2>/dev/null)
         seq=$(basename "$f" | cut -d'_' -f1)
