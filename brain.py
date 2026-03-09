@@ -67,12 +67,6 @@ def print_usage(engine: AnthropicEngine):
 
 async def run_task(args):
     """Main task execution."""
-    # Check API key
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("\033[31mHATA: ANTHROPIC_API_KEY ortam degiskeni gerekli.\033[0m")
-        print("  export ANTHROPIC_API_KEY='sk-ant-...'")
-        sys.exit(1)
-
     print_header()
 
     # Init engine
