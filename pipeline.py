@@ -1,5 +1,5 @@
 """
-pipeline.py — Pipeline Engine
+pipeline.py — Loom Pipeline Engine
 Async orchestration with parallel workers, dev-qa loop, SQLite state.
 """
 
@@ -82,7 +82,7 @@ class PipelineState:
 
 
 class Pipeline:
-    MAX_RETRIES = 3
+    MAX_RETRIES = 2  # 3'ten düşürüldü — CLI modda her retry ~60sn
 
     def __init__(self, engine: AnthropicEngine, project_root: Path,
                  db_path: Path | None = None, event_callback=None):
@@ -140,8 +140,8 @@ DEVELOPER ({agent}) CIKTISI:
 
 Build calistir ve kontrol et. VERDICT: PASS veya FAIL"""
 
-        qa_result = await self.engine.call("ahmet", qa_prompt)
-        await self.emit({"type": "agent_done", "agent": "ahmet", "action": "qa"})
+        qa_result = await self.engine.call("reviewer", qa_prompt)
+        await self.emit({"type": "agent_done", "agent": "reviewer", "action": "qa"})
 
         verdict = "PASS" if re.search(r"(?i)VERDICT.*PASS", qa_result) else "FAIL"
         return f"Developer: {agent}\nQA: {verdict}\n\n{dev_result}"
@@ -151,10 +151,10 @@ Build calistir ve kontrol et. VERDICT: PASS veya FAIL"""
         teams_dir = Path(__file__).parent / "teams"
         team_file = teams_dir / f"{team}.json"
 
-        members = ["ismail"]
+        members = ["builder"]
         if team_file.exists():
             data = json.loads(team_file.read_text())
-            members = data.get("members", ["ismail"])
+            members = data.get("members", ["builder"])
 
         await self.emit({"type": "status", "phase": "team", "team": team, "members": members})
 
@@ -167,7 +167,7 @@ Build calistir ve kontrol et. VERDICT: PASS veya FAIL"""
         self._apply_code_changes(combined)
 
         # QA
-        qa_result = await self.engine.call("ahmet", f"GOREV: {task}\n\nEKIP CIKTISI:\n{combined[:4000]}\n\nVERDICT: PASS veya FAIL")
+        qa_result = await self.engine.call("reviewer", f"GOREV: {task}\n\nEKIP CIKTISI:\n{combined[:4000]}\n\nVERDICT: PASS veya FAIL")
         return combined
 
     async def run_full(self, task: str) -> str:
@@ -217,54 +217,60 @@ Build calistir ve kontrol et. VERDICT: PASS veya FAIL"""
         return self._summary()
 
     # ═══════════════════════════════════════════
-    #  PLANNING (Ece)
+    #  PLANNING (Architect)
     # ═══════════════════════════════════════════
 
     async def _plan(self, task: str) -> dict | None:
-        """Ece creates the execution plan."""
-        plan_prompt = f"""GOREV: {task}
+        """Architect creates the execution plan."""
+        plan_prompt = f"""TASK: {task}
 
-EKIPLER:
-- Tasarim: ismail (Senior Dev) + zeynep (UX) — kanal: tasarim
-- Backend: hasan (Backend) + saki (Frontend) — kanal: backend
-- QA/DevOps: ahmet (QA) + huseyin (DevOps) — kanal: qa
+TEAMS:
+- Design: builder (Senior Dev) + designer (UX)
+- API: backend (Backend) + frontend (Frontend)
+- Quality: reviewer (QA) + deployer (DevOps)
 
-ONEMLI:
-- Paralel calisabilecek adimlari depends_on: [] ile isaretle
-- Her adima net kabul kriterleri yaz
-- Basit tut — gereksiz adim ekleme
+IMPORTANT:
+- MAXIMUM 3 steps! Keep it minimal — no unnecessary steps
+- Mark parallelizable steps with depends_on: []
+- Write clear acceptance criteria for each step
+- Same agent can be used in multiple steps
 
-SADECE JSON formatinda cevap ver:
+Reply ONLY in JSON format:
 {{
-  "task": "gorev",
-  "architecture": "teknik ozet",
+  "task": "task description",
+  "architecture": "technical summary",
   "steps": [
     {{
       "id": 1,
-      "desc": "adim aciklamasi",
-      "assignee": "ajan_adi",
-      "team": "ekip",
+      "desc": "step description",
+      "assignee": "agent_name",
+      "team": "team",
       "depends_on": [],
-      "acceptance_criteria": ["kriter"]
+      "acceptance_criteria": ["criterion"]
     }}
   ]
 }}"""
 
-        reply = await self.engine.call("ece", plan_prompt)
-        await self.emit({"type": "agent_done", "agent": "ece", "action": "planning"})
+        reply = await self.engine.call("architect", plan_prompt)
+        await self.emit({"type": "agent_done", "agent": "architect", "action": "planning"})
 
-        # Parse JSON from reply
+        # Parse JSON from reply (markdown code block veya raw JSON)
         try:
-            match = re.search(r'\{[\s\S]*\}', reply)
+            match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', reply)
             if match:
-                plan = json.loads(match.group())
+                raw = match.group(1)
+            else:
+                raw_match = re.search(r'\{[\s\S]*\}', reply)
+                raw = raw_match.group() if raw_match else None
+            if raw:
+                plan = json.loads(raw)
                 self.state.architecture = plan.get("architecture", "")
                 for s in plan.get("steps", []):
                     self.state.steps.append(PipelineStep(
                         id=s["id"],
                         desc=s["desc"],
-                        assignee=s.get("assignee", "ismail"),
-                        team=s.get("team", "tasarim"),
+                        assignee=s.get("assignee", "builder"),
+                        team=s.get("team", "design"),
                         depends_on=s.get("depends_on", []),
                         acceptance_criteria=s.get("acceptance_criteria", []),
                     ))
@@ -386,7 +392,7 @@ VERDICT: PASS veya FAIL
 ISSUES: (varsa)
 FIX_INSTRUCTIONS: (FAIL ise)"""
 
-        return await self.engine.call("ahmet", qa_prompt)
+        return await self.engine.call("reviewer", qa_prompt)
 
     # ═══════════════════════════════════════════
     #  UTILITIES

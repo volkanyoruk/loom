@@ -1,287 +1,170 @@
-# youdown-brain
-
-**Akilli multi-agent pipeline. 8 ajan, 4 ekip, otomatik gorev yonlendirme.**
-
-Gorev karmasikligini analiz eder, gereken minimum ajan sayisini secer, prompt caching ile token tasarrufu yapar, bagimsiz gorevleri paralel calistirir.
+# Loom
 
 ```
-Basit soru   →  1 ajan      ~2K token    "React hook nasil yazilir?"
-Orta gorev   →  dev + QA    ~5K token    "Bu fonksiyonu duzelt"
-Ekip isi     →  2-3 ajan    ~12K token   "UI tasarimini yenile"
-Buyuk proje  →  8 ajan      ~23K token   "Kullanici yonetim sistemi ekle"
+ ╦   ╔═╗ ╔═╗ ╔╦╗
+ ║   ║ ║ ║ ║ ║║║
+ ╩═╝ ╚═╝ ╚═╝ ╩ ╩
+ Multi-Agent AI Pipeline
+```
+
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/volkanyoruk/loom?style=social)](https://github.com/volkanyoruk/loom)
+
+**Multi-agent AI pipeline framework. Smart routing, parallel execution, dev-qa loops.**
+
+---
+
+## Why Loom?
+
+| | Single Agent | Loom |
+|---|---|---|
+| Task analysis | You decide what to do | SmartRouter classifies and routes automatically |
+| Execution | One agent, sequential | Up to 8 specialized agents in parallel |
+| Quality | Hope for the best | Built-in dev-QA loop with retry |
+| Complex tasks | One long, unfocused response | Decomposed, distributed, reviewed |
+| Token usage | Wasteful on big tasks | Strategy-optimized (SINGLE to FULL) |
+
+Loom does not replace your AI. It organizes it.
+
+---
+
+## Architecture
+
+```
+                         ┌─────────────┐
+                         │    Task      │
+                         └──────┬───────┘
+                                │
+                         ┌──────▼───────┐
+                         │ SmartRouter   │
+                         │ (heuristic +  │
+                         │  AI classify) │
+                         └──────┬───────┘
+                                │
+              ┌─────────────────┼─────────────────┐
+              │                 │                  │
+       ┌──────▼──────┐  ┌──────▼──────┐  ┌───────▼──────┐
+       │   SINGLE    │  │    PAIR     │  │  TEAM / FULL │
+       │  1 agent    │  │  dev + QA   │  │   parallel   │
+       └──────┬──────┘  └──────┬──────┘  └───────┬──────┘
+              │                │                  │
+              │         ┌──────▼──────┐    ┌──────▼──────┐
+              │         │  Dev-QA     │    │  Architect  │
+              │         │  Loop       │    │  Director   │
+              │         │  (retry)    │    │  Builder x  │
+              │         └──────┬──────┘    │  Reviewer   │
+              │                │           └──────┬──────┘
+              └────────────────┼──────────────────┘
+                               │
+                        ┌──────▼───────┐
+                        │   Result     │
+                        └──────────────┘
 ```
 
 ---
 
-## Hizli Baslangic
+## Quick Start
+
+### Install
 
 ```bash
-git clone https://github.com/volkanyoruk/youdown-brain.git
-cd youdown-brain
+pip install loom-agents
 
-pip install -r requirements.txt
-export ANTHROPIC_API_KEY='sk-ant-...'
-
-python3 brain.py "Login sayfasi ekle" --project ~/myapp
+# Or from source:
+git clone https://github.com/volkanyoruk/loom.git
+cd loom
+pip install -e .
 ```
 
----
-
-## Kullanim
-
-### Gorev Calistirma
+### Usage
 
 ```bash
-# Otomatik strateji — sistem karmasikligi analiz eder
-python3 brain.py "Login sayfasi ekle" --project ~/myapp
+# Simple task — SmartRouter picks the best strategy
+loom "Add a login page" --project ~/myapp
 
-# Belirli bir ajan kullan
-python3 brain.py "Bu kodu acikla" --agent ece
+# Ask a specific agent directly
+loom "What is React?" --agent architect
 
-# Stratejiyi zorla
-python3 brain.py "Gorev" --strategy single     # Tek ajan
-python3 brain.py "Gorev" --strategy pair        # Developer + QA
-python3 brain.py "Gorev" --strategy team        # Ekip
-python3 brain.py "Gorev" --strategy full        # Tam pipeline
+# Force a strategy for complex work
+loom "Big refactor" --strategy full
 
-# Model degistir
-python3 brain.py "Gorev" --model claude-opus-4-6
+# Launch the web dashboard
+loom --dashboard
 ```
 
-### Web Dashboard
+The dashboard runs at `http://localhost:7777`.
+
+---
+
+## Agents
+
+| Agent | Role | Description |
+|-------|------|-------------|
+| **Architect** | Chief Architect | Creates plans, defines system structure and technical decisions |
+| **Director** | Orchestrator | Distributes tasks across agents, manages workflow |
+| **Builder** | Senior Developer | Full-stack implementation, writes production code |
+| **Designer** | UX Architect | Design systems, component patterns, user experience |
+| **Backend** | Backend Engineer | API design, database modeling, server architecture |
+| **Frontend** | Frontend Engineer | React/Vue components, UI implementation, styling |
+| **Reviewer** | QA Engineer | Testing, code review, quality gate enforcement |
+| **Deployer** | DevOps Engineer | CI/CD pipelines, infrastructure, deployment |
+
+---
+
+## Strategies
+
+| Strategy | Agents | When | Est. Tokens |
+|----------|--------|------|-------------|
+| **SINGLE** | 1 | Simple questions, small fixes | ~2K |
+| **PAIR** | 2 | Feature development (dev + QA loop) | ~8K |
+| **TEAM** | 3-5 | Multi-file features, parallel execution | ~20K |
+| **FULL** | 8 | Large refactors, new project scaffolding | ~50K |
+
+SmartRouter selects the strategy automatically based on task complexity. You can override it with `--strategy`.
+
+---
+
+## Dashboard
+
+Run `loom --dashboard` to launch the web UI at `localhost:7777`. The dashboard provides:
+
+- Real-time agent activity and task progress
+- Execution history and logs
+- Strategy selection overview
+- Token usage tracking
+
+---
+
+## Configuration
+
+Loom works with your existing Claude CLI subscription. No API key required for CLI mode.
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `CLAUDE_MODEL` | Model to use for agent tasks | `claude-sonnet-4-20250514` |
+| `ANTHROPIC_API_KEY` | API key (optional, for direct API mode) | -- |
+
+For API mode, install the optional dependency:
 
 ```bash
-python3 brain.py --dashboard                    # http://localhost:7777
-python3 brain.py --dashboard --port 8080        # Farkli port
-```
-
-Dashboard ozellikleri:
-- Gorev gonderme formu (strateji secimi dahil)
-- WebSocket ile anlik canli akis
-- Token kullanimi (input, cache hit, output, maliyet orani)
-- Pipeline ilerleme cubugu ve adim detaylari
-- Ajan aktivite takibi
-
----
-
-## Nasil Calisiyor
-
-### 1. Akilli Yonlendirme (router.py)
-
-Gorev gelir → heuristik analiz + Haiku siniflandirma → minimum strateji secilir.
-
-```
-"React hook nasil yazilir?"     →  SINGLE  (1 cagri, ~2K token)
-"Login fonksiyonunu duzelt"     →  PAIR    (dev + QA, ~5K token)
-"UI tasarimini komple yenile"   →  TEAM    (2-3 ajan, ~12K token)
-"E-ticaret sistemi kur"        →  FULL    (plan + dagit + QA, ~23K token)
-```
-
-Ajan eslestirme:
-
-| Anahtar kelimeler | Ajan |
-|-------------------|------|
-| mimar, plan, strateji | Ece |
-| yaz, implement, gelistir, duzelt | Ismail |
-| ui, ux, tasarim, tema, renk | Zeynep |
-| api, endpoint, database, backend | Hasan |
-| component, frontend, react, css | Saki |
-| test, review, kontrol, kalite | Ahmet |
-| deploy, docker, ci/cd, nginx | Huseyin |
-
-### 2. Prompt Caching (engine.py)
-
-Anthropic API `cache_control` ile:
-
-```
-Ilk cagri:  Ajan prompt (300 tok) + Proje (4000 tok) = 4300 tok (tam fiyat)
-Sonraki:    Ayni prompt cached = 430 tok (0.1x fiyat)
-```
-
-16 cagrilik bir pipeline'da: **62,000 token tasarruf** (~%70).
-
-Multi-turn: Ayni ajan tekrar cagirildiginda onceki konusma hatirlanir — context tekrar gonderilmez.
-
-### 3. Paralel Calisma (pipeline.py)
-
-Topolojik siralama ile bagimsiz gorevler ayni anda calisir:
-
-```
-Ece plan:  [Adim1, Adim2, Adim3(dep:1,2), Adim4(dep:3)]
-
-Seviye 1:  Adim1 + Adim2  (paralel)
-Seviye 2:  Adim3          (1,2 bitmesini bekler)
-Seviye 3:  Adim4          (3 bitmesini bekler)
-```
-
-Sirayla: 4 tur × ortalama 30sn = 120sn
-Paralel: 3 tur × ortalama 30sn = 90sn (+ 2 gorev paralel)
-
-### 4. Dev-QA Dongusu
-
-```
-Developer kodu yazar
-    ↓
-Ahmet (QA) test eder
-    ↓
-PASS → sonraki gorev
-FAIL → developer'a geri bildirim (multi-turn, context korunur)
-    ↓
-Max 3 deneme → eskalasyon
-```
-
-QA multi-turn avantaji: Geri bildirim → duzeltme dongusunde proje dosyalari tekrar gonderilmez. Sadece "su sorunlari duzelt" mesaji gider.
-
----
-
-## Mimari
-
-```
-                 ┌──────────────────────────────────┐
-                 │          brain.py                 │
-                 │   CLI giris noktasi               │
-                 └──────────┬───────────────────────┘
-                            │
-              ┌─────────────▼─────────────┐
-              │        router.py          │
-              │  SINGLE / PAIR / TEAM /   │
-              │  FULL strateji secimi     │
-              └─────────────┬─────────────┘
-                            │
-              ┌─────────────▼─────────────┐
-              │       pipeline.py         │
-              │  Paralel orchestration    │
-              │  Dev-QA loop              │
-              └─────────────┬─────────────┘
-                            │
-              ┌─────────────▼─────────────┐
-              │        engine.py          │
-              │  Anthropic API            │
-              │  Prompt caching           │
-              │  Multi-turn session       │
-              └───────────────────────────┘
-```
-
-### Ajanlar
-
-| Ajan | Rol | Ekip |
-|------|-----|------|
-| **Ece** | Chief Architect — plan olusturur, kod yazmaz | Orkestrasyon |
-| **Ceylin** | Orchestrator — dagitir, takip eder | Orkestrasyon |
-| **Ismail** | Senior Developer — fullstack implementasyon | Tasarim |
-| **Zeynep** | UX Architect — UI/UX, design system | Tasarim |
-| **Hasan** | Backend Architect — API, database | Backend |
-| **Saki** | Frontend Developer — React, CSS | Backend |
-| **Ahmet** | QA / Reality Checker — test, kalite kapisi | QA & DevOps |
-| **Huseyin** | DevOps Engineer — deploy, altyapi | QA & DevOps |
-
-### Stratejiler Detay
-
-**SINGLE** — Tek ajan, tek cagri.
-Soru, aciklama, review talebi. En uygun ajan otomatik secilir.
-
-**PAIR** — Developer + QA.
-Developer kodu yazar → Ahmet test eder. Basit bug fix, tek dosya degisikligi.
-
-**TEAM** — Ayni ekipten 2-3 ajan paralel.
-Ornk: Zeynep (UI tasarim) + Saki (frontend) ayni anda calisir → Ahmet onaylar.
-
-**FULL** — Tam pipeline.
-Ece plan yapar → bagimsiz gorevler paralel dagitilir → her biri QA'dan gecer → max 3 retry → eskalasyon.
-
----
-
-## Dosya Yapisi
-
-```
-youdown-brain/
-├── brain.py              # Ana giris noktasi — CLI + strateji dispatch
-├── engine.py             # Anthropic API client — caching + session + token tracking
-├── router.py             # Akilli yonlendirme — heuristik + Haiku siniflandirma
-├── pipeline.py           # Paralel pipeline — topo sort + dev-qa loop
-├── dashboard_v2.py       # Web dashboard — WebSocket + gorev gonderme
-├── requirements.txt      # anthropic, aiohttp, aiosqlite
-│
-├── agents/               # Ajan kisilik tanimlari (Markdown + YAML frontmatter)
-│   ├── ece.md            # Chief Architect
-│   ├── ceylin.md         # Orchestrator
-│   ├── ismail.md         # Senior Developer
-│   ├── zeynep.md         # UX Architect
-│   ├── hasan.md          # Backend Architect
-│   ├── saki.md           # Frontend Developer
-│   ├── ahmet.md          # Reality Checker / QA
-│   └── huseyin.md        # DevOps Engineer
-│
-├── teams/                # Ekip tanimlari
-│   ├── orkestrasyon.json
-│   ├── tasarim.json
-│   ├── backend.json
-│   └── qa.json
-│
-└── data/                 # (runtime) Pipeline state
+pip install loom-agents[api]
 ```
 
 ---
 
-## Yapilandirma
+## Contributing
 
-### Ortam Degiskenleri
+Contributions are welcome. Please open an issue first to discuss what you would like to change.
 
-| Degisken | Varsayilan | Aciklama |
-|----------|-----------|----------|
-| `ANTHROPIC_API_KEY` | (gerekli) | Anthropic API anahtari |
-| `CLAUDE_MODEL` | `claude-sonnet-4-6` | Model secimi |
-
-### Ajan Ozellestirme
-
-`agents/<isim>.md` dosyasini duzenleyin:
-
-```yaml
----
-name: ece
-role: chief-architect
----
-
-# Ece — Bas Mimar
-
-Sen Ece, projelerin bas mimarisin...
-```
-
-### Yeni Ajan / Ekip Ekleme
-
-1. `agents/yeni_ajan.md` olustur
-2. `teams/yeni_ekip.json` olustur:
-```json
-{
-  "name": "Mobile",
-  "channel": "mobile",
-  "members": ["yeni_ajan"]
-}
-```
-3. `router.py` KEYWORD_MAP'e ajan anahtar kelimelerini ekle
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/my-feature`)
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
 
 ---
 
-## Token Karsilastirma
+## License
 
-| Senaryo | Geleneksel (tek Claude oturumu) | v2 (bash pipeline) | v3 (smart) |
-|---------|------|------|------|
-| Basit soru | ~2K | ~8K (gereksiz overhead) | ~2K |
-| 5 adimli gorev | ~15K | ~76K (cache yok) | ~23K |
-| 10 adimli proje | ~30K | ~150K+ | ~40K |
-
-v3 avantaji: Basit isler icin tek Claude oturumu kadar verimli, karmasik isler icin paralel calisma + QA kalite kapisi.
-
----
-
-## Guvenlik
-
-- **Path traversal koruması**: `apply_code_changes()` dosya yolunu `resolve()` ile kontrol eder, proje kokunden cikamaz
-- **Prompt caching**: Hassas veri cache'te 5dk sonra silinir (Anthropic ephemeral cache)
-- **API key**: Sadece ortam degiskeni uzerinden, koda yazilmaz
-
----
-
-## Lisans
-
-MIT
+[MIT](LICENSE) -- Volkan Yoruk

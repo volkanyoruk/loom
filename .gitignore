@@ -1,23 +1,8 @@
-# Runtime dosyaları
-messages/
-channels/
-handoffs/
-logs/
-archive/
-task_status.json
-
-# Geçici
-*.txt
-*.flag
-*.log
-*.tmp
-*.lock
-.mini_busy
-
-# Syncthing
-*.sync-conflict-*
-.stfolder
-.stignore
-
-# macOS
-.DS_Store
+__pycache__/
+*.pyc
+.venv/
+*.db
+*.db-shm
+*.db-wal
+data/
+.env

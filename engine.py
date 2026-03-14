@@ -1,17 +1,21 @@
 """
-engine.py — AnthropicEngine
-Claude CLI (abonelik) veya Anthropic API (key) — ikisi de desteklenir.
+engine.py — Loom Engine
+Uses Claude CLI (subscription) or Anthropic API (key) — both supported.
 
-Varsayilan: claude CLI kullanir, API key gerekmez.
-API key varsa: dogrudan API + prompt caching (daha verimli).
+Default: uses claude CLI, no API key needed.
+If API key present: direct API + prompt caching (more efficient).
 """
 
 import os
 import asyncio
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from dataclasses import dataclass, field
+
+# Paralel claude CLI çağrıları için thread pool (varsayılan 5 yerine 8)
+_executor = ThreadPoolExecutor(max_workers=8)
 
 
 @dataclass
@@ -80,9 +84,15 @@ class AnthropicEngine:
         self._claude_bin = _find_claude_bin()
 
     def load_agents(self, agents_dir: Path):
-        """Ajan prompt dosyalarini yukle."""
+        """Ajan prompt dosyalarini yukle (YAML frontmatter strip edilir)."""
         for f in agents_dir.glob("*.md"):
-            self.agent_prompts[f.stem] = f.read_text()
+            content = f.read_text()
+            # YAML frontmatter strip: ---...--- blogu kaldir
+            if content.startswith("---"):
+                parts = content.split("---", 2)
+                if len(parts) >= 3:
+                    content = parts[2].strip()
+            self.agent_prompts[f.stem] = content
 
     def set_project_context(self, project_root: Path, max_chars: int = 15000):
         """Proje dosyalarini oku. Her cagride tekrar gonderilmez (session memory)."""
@@ -191,11 +201,14 @@ class AnthropicEngine:
 
         for attempt in range(MAX_RETRIES):
             try:
-                env = {**os.environ}
-                env.pop("CLAUDECODE", None)  # Claude Code modunu kapat
+                # Claude Code nested session kontrolunu atla
+                env = {k: v for k, v in os.environ.items()
+                       if k not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT",
+                                    "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_PROCESS_TYPE",
+                                    "CLAUDE_CODE", "CLAUDE_DEV")}
 
                 result = await asyncio.get_event_loop().run_in_executor(
-                    None,
+                    _executor,
                     lambda: subprocess.run(
                         [self._claude_bin, "--model", self.model, "-p", open(tmp_path).read()],
                         capture_output=True,

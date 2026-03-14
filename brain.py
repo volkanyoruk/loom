@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-brain.py — youdown-brain v3
-Smart multi-agent pipeline with prompt caching + parallel execution.
+Loom — Multi-Agent Pipeline
+Smart routing, parallel execution, dev-qa loops.
 
 Usage:
-    python3 brain.py "Gorev aciklamasi" --project /path/to/project
-    python3 brain.py "Basit soru?"
-    python3 brain.py "Gorev" --agent ismail           # Force specific agent
-    python3 brain.py "Gorev" --strategy full           # Force full pipeline
-    python3 brain.py --dashboard                       # Start web dashboard
-    python3 brain.py --dashboard --port 8080           # Custom port
+    loom "Task description" --project /path/to/project
+    loom "Simple question?"
+    loom "Task" --agent builder           # Force specific agent
+    loom "Task" --strategy full           # Force full pipeline
+    loom --dashboard                      # Start web dashboard
+    loom --dashboard --port 8080          # Custom port
 """
 
 import argparse
@@ -35,7 +35,7 @@ TEAMS_DIR = AGENTS_DIR / "teams"
 def print_header():
     print("""
 \033[36m╔══════════════════════════════════════════════╗
-║     youdown-brain v3 — Smart Pipeline        ║
+║          Loom — Multi-Agent Pipeline         ║
 ╚══════════════════════════════════════════════╝\033[0m""")
 
 
@@ -48,21 +48,21 @@ def print_routing(decision: RoutingDecision):
     }
     c = colors.get(decision.strategy, "")
     print(f"""
-  Strateji  : {c}{decision.strategy.value.upper()}\033[0m
-  Ajan      : {decision.agent}
-  Sebep     : {decision.reason}
-  Tahmini   : ~{decision.estimated_tokens:,} token
+  Strategy  : {c}{decision.strategy.value.upper()}\033[0m
+  Agent     : {decision.agent}
+  Reason    : {decision.reason}
+  Est.      : ~{decision.estimated_tokens:,} tokens
 """)
 
 
 def print_usage(engine: AnthropicEngine):
     u = engine.usage_summary()
     print(f"""
-\033[90m── Token Kullanimi ──
+\033[90m── Token Usage ──
   Input     : {u['input_tokens']:,}
   Output    : {u['output_tokens']:,}
   Cache hit : {u['cache_read_tokens']:,}
-  Oran      : {u['effective_cost_ratio']:.0%}\033[0m""")
+  Ratio     : {u['effective_cost_ratio']:.0%}\033[0m""")
 
 
 async def run_task(args):
@@ -77,10 +77,10 @@ async def run_task(args):
     # Project context
     project_root = Path(args.project).resolve() if args.project else Path.cwd()
     if project_root.exists():
-        print(f"  Proje    : {project_root}")
+        print(f"  Project   : {project_root}")
         engine.set_project_context(project_root)
     else:
-        print(f"  \033[33mUyari: Proje dizini bulunamadi: {project_root}\033[0m")
+        print(f"  \033[33mWarning: Project dir not found: {project_root}\033[0m")
 
     task = args.task
 
@@ -89,7 +89,7 @@ async def run_task(args):
         etype = event.get("type", "")
         if etype == "status":
             phase = event.get("phase", "")
-            print(f"\n\033[36m>>> Faz: {phase.upper()}\033[0m")
+            print(f"\n\033[36m>>> Phase: {phase.upper()}\033[0m")
         elif etype == "agent_done":
             agent = event.get("agent", "?")
             action = event.get("action", "")
@@ -102,25 +102,25 @@ async def run_task(args):
         elif etype == "step_worker_done":
             sid = event.get("step_id", "?")
             attempt = event.get("attempt", 1)
-            print(f"    \033[32m[DEV]\033[0m Kod yazildi (deneme {attempt})")
+            print(f"    \033[32m[DEV]\033[0m Code written (attempt {attempt})")
         elif etype == "step_qa_done":
             verdict = event.get("verdict", "?")
             color = "\033[32m" if verdict == "PASS" else "\033[31m"
             print(f"    {color}[QA]\033[0m {verdict}")
         elif etype == "step_escalated":
             desc = event.get("desc", "?")
-            print(f"    \033[31m[ESKALASYON]\033[0m {desc}")
+            print(f"    \033[31m[ESCALATED]\033[0m {desc}")
         elif etype == "level_start":
             level = event.get("level", "?")
             steps = event.get("steps", [])
-            print(f"\n\033[35m>>> Seviye {level}: {len(steps)} gorev paralel\033[0m")
+            print(f"\n\033[35m>>> Level {level}: {len(steps)} tasks parallel\033[0m")
         elif etype == "error":
             msg = event.get("message", "?")
-            print(f"\n  \033[31m[HATA]\033[0m {msg}")
+            print(f"\n  \033[31m[ERROR]\033[0m {msg}")
         elif etype == "agent_call":
             cache = event.get("cache_read", 0)
             if cache > 0:
-                print(f"    \033[90m(cache hit: {cache} token)\033[0m")
+                print(f"    \033[90m(cache hit: {cache} tokens)\033[0m")
 
     engine.event_callback = on_event
     pipeline = Pipeline(engine, project_root, event_callback=on_event)
@@ -129,12 +129,12 @@ async def run_task(args):
     if args.strategy:
         # Forced strategy
         strategy = Strategy(args.strategy)
-        agent = args.agent or "ismail"
+        agent = args.agent or "builder"
         decision = RoutingDecision(
             strategy=strategy,
             agent=agent,
             team=None,
-            reason="Manuel secim",
+            reason="Manual selection",
             estimated_tokens=0,
         )
     elif args.agent:
@@ -143,7 +143,7 @@ async def run_task(args):
             strategy=Strategy.SINGLE,
             agent=args.agent,
             team=None,
-            reason="Manuel ajan secimi",
+            reason="Manual agent selection",
             estimated_tokens=2000,
         )
     else:
@@ -166,7 +166,7 @@ async def run_task(args):
             print(result)
 
         case Strategy.TEAM:
-            result = await pipeline.run_team(decision.team or "tasarim", task)
+            result = await pipeline.run_team(decision.team or "design", task)
             print(f"\n{'─' * 50}")
             print(result)
 
@@ -187,24 +187,24 @@ async def run_dashboard(port: int):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="youdown-brain v3 — Smart Multi-Agent Pipeline",
+        description="Loom — Multi-Agent Pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Ornekler:
-  python3 brain.py "Login sayfasi ekle" --project ~/myapp
-  python3 brain.py "Bu fonksiyonu acikla" --agent ece
-  python3 brain.py "Buyuk refactor" --strategy full --project ~/myapp
-  python3 brain.py --dashboard
+Examples:
+  loom "Add login page" --project ~/myapp
+  loom "Explain this function" --agent architect
+  loom "Big refactor" --strategy full --project ~/myapp
+  loom --dashboard
         """,
     )
-    parser.add_argument("task", nargs="?", help="Gorev veya soru")
-    parser.add_argument("--project", "-p", help="Proje dizini (varsayilan: mevcut dizin)")
-    parser.add_argument("--agent", "-a", help="Belirli bir ajan kullan (orn: ismail, ece)")
+    parser.add_argument("task", nargs="?", help="Task or question")
+    parser.add_argument("--project", "-p", help="Project directory (default: cwd)")
+    parser.add_argument("--agent", "-a", help="Use specific agent (e.g. builder, architect)")
     parser.add_argument("--strategy", "-s", choices=["single", "pair", "team", "full"],
-                        help="Stratejiyi zorla")
-    parser.add_argument("--dashboard", "-d", action="store_true", help="Web dashboard baslat")
-    parser.add_argument("--port", type=int, default=7777, help="Dashboard portu (varsayilan: 7777)")
-    parser.add_argument("--model", "-m", help="Claude model (varsayilan: claude-sonnet-4-6)")
+                        help="Force strategy")
+    parser.add_argument("--dashboard", "-d", action="store_true", help="Start web dashboard")
+    parser.add_argument("--port", type=int, default=7777, help="Dashboard port (default: 7777)")
+    parser.add_argument("--model", "-m", help="Claude model (default: claude-sonnet-4-6)")
 
     args = parser.parse_args()
 

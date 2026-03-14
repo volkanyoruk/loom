@@ -115,11 +115,11 @@ async def _run_task_bg(task: str, project: str, strategy: str):
 
         match strat:
             case S.SINGLE:
-                result = await pipeline.run_single(decision.agent if not strategy else "ismail", task)
+                result = await pipeline.run_single(decision.agent if not strategy else "builder", task)
             case S.PAIR:
-                result = await pipeline.run_pair(decision.agent if not strategy else "ismail", task)
+                result = await pipeline.run_pair(decision.agent if not strategy else "builder", task)
             case S.TEAM:
-                result = await pipeline.run_team(decision.team or "tasarim", task)
+                result = await pipeline.run_team(decision.team or "design", task)
             case S.FULL_PIPELINE:
                 result = await pipeline.run_full(task)
 
@@ -138,7 +138,7 @@ HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>youdown-brain v3</title>
+<title>Loom</title>
 <style>
 :root {
   --bg: #0d1117; --surface: #161b22; --border: #30363d;
@@ -267,7 +267,7 @@ h1 { font-size: 20px; font-weight: 700; color: var(--accent); }
 
 <div class="header">
   <div>
-    <h1>youdown-brain v3</h1>
+    <h1>Loom</h1>
     <span style="color:var(--text-dim);font-size:12px;">Smart Multi-Agent Pipeline</span>
   </div>
   <div class="header-right">
@@ -550,7 +550,7 @@ async def start_dashboard(port: int = 7777):
 
     print(f"""
 \033[36m╔══════════════════════════════════════════════╗
-║      youdown-brain v3 — Web Dashboard        ║
+║      Loom — Web Dashboard        ║
 ╠══════════════════════════════════════════════╣\033[0m
   URL  : http://localhost:{port}
   WS   : ws://localhost:{port}/ws

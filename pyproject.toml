@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loom-agents"
+version = "0.1.0"
+description = "Multi-agent AI pipeline framework. Smart routing, parallel execution, dev-qa loops."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "Volkan Yoruk"}
+]
+keywords = ["ai", "agents", "multi-agent", "pipeline", "claude", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "aiohttp",
+    "aiosqlite",
+]
+
+[project.optional-dependencies]
+api = ["anthropic"]
+
+[project.scripts]
+loom = "brain:main"
+
+[project.urls]
+Homepage = "https://github.com/volkanyoruk/loom"
+Repository = "https://github.com/volkanyoruk/loom"
+Issues = "https://github.com/volkanyoruk/loom/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
